@@ -104,30 +104,41 @@ class YTDLPService {
     }
     
     // 2 & 3. Download Video with AsyncStream yielding progress
-    func downloadVideo(video: VideoItem, format: String, resolution: String, destinationFolder: URL) -> AsyncStream<DownloadProgressData> {
+    func downloadVideo(video: VideoItem, downloadType: String, videoFormat: String, audioFormat: String, resolution: String, destinationFolder: URL) -> AsyncStream<DownloadProgressData> {
         AsyncStream { continuation in
             let executableURL = self.executableURL
             
             let process = Process()
             process.executableURL = executableURL
             
-            var formatArg = ""
-            switch format {
-            case "original": formatArg = "bestvideo+bestaudio/best"
-            case "audio": formatArg = "bestaudio/best"
-            default: formatArg = "bestvideo[height<=\(resolution)]+bestaudio/best"
-            }
-            
-            process.arguments = [
+            var args = [
                 "--ffmpeg-location", ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--retries", "infinite",
                 "--fragment-retries", "infinite",
-                "-f", formatArg,
+            ]
+            
+            if downloadType == "audio" {
+                args.append(contentsOf: [
+                    "-f", "bestaudio/best",
+                    "-x",
+                    "--audio-format", audioFormat
+                ])
+            } else {
+                let formatArg = resolution == "best" ? "bestvideo+bestaudio/best" : "bestvideo[height<=\(resolution)]+bestaudio/best"
+                args.append(contentsOf: [
+                    "-f", formatArg,
+                    "--merge-output-format", videoFormat
+                ])
+            }
+            
+            args.append(contentsOf: [
                 "-o", "\(destinationFolder.path)/\(video.safeFileName).%(ext)s",
                 video.url
-            ]
+            ])
+            
+            process.arguments = args
             
             let pipe = Pipe()
             process.standardOutput = pipe

@@ -14,7 +14,9 @@ class DownloaderViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var urlInput: String = ""
     @Published var selectedResolution: String = "1080" // 720, 1080, 2160
-    @Published var selectedFormatType: String = "original" // original, video, audio
+    @Published var downloadType: String = "video"
+    @Published var videoFormat: String = "mp4"
+    @Published var audioFormat: String = "mp3"
     @Published var destinationFolder: URL?
     
     // Filter and Sort states
@@ -110,7 +112,9 @@ class DownloaderViewModel: ObservableObject {
             videos[index].errorDescription = nil
         }
         
-        let formatType = self.selectedFormatType
+        let type = self.downloadType
+        let vFormat = self.videoFormat
+        let aFormat = self.audioFormat
         let resolution = self.selectedResolution
         let service = self.service
         
@@ -130,7 +134,9 @@ class DownloaderViewModel: ObservableObject {
                 group.addTask {
                     let stream = await service.downloadVideo(
                         video: video,
-                        format: formatType,
+                        downloadType: type,
+                        videoFormat: vFormat,
+                        audioFormat: aFormat,
                         resolution: resolution,
                         destinationFolder: destURL
                     )

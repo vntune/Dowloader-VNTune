@@ -209,30 +209,41 @@ class YTDLPService {
     }
     
     // 2 & 3. Download Video with AsyncStream yielding progress
-    func downloadVideo(video: VideoItem, format: String, resolution: String, destinationFolder: URL) -> AsyncStream<DownloadProgressData> {
+    func downloadVideo(video: VideoItem, downloadType: String, videoFormat: String, audioFormat: String, resolution: String, destinationFolder: URL) -> AsyncStream<DownloadProgressData> {
         AsyncStream { continuation in
             let executableURL = self.executableURL
             
             let process = Process()
             process.executableURL = executableURL
             
-            var formatArg = ""
-            switch format {
-            case "original": formatArg = "bestvideo+bestaudio/best"
-            case "audio": formatArg = "bestaudio/best"
-            default: formatArg = "bestvideo[height<=\\(resolution)]+bestaudio/best"
-            }
-            
-            process.arguments = [
+            var args = [
                 "--ffmpeg-location", ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--retries", "infinite",
                 "--fragment-retries", "infinite",
-                "-f", formatArg,
+            ]
+            
+            if downloadType == "audio" {
+                args.append(contentsOf: [
+                    "-f", "bestaudio/best",
+                    "-x",
+                    "--audio-format", audioFormat
+                ])
+            } else {
+                let formatArg = resolution == "best" ? "bestvideo+bestaudio/best" : "bestvideo[height<=\\(resolution)]+bestaudio/best"
+                args.append(contentsOf: [
+                    "-f", formatArg,
+                    "--merge-output-format", videoFormat
+                ])
+            }
+            
+            args.append(contentsOf: [
                 "-o", "\\(destinationFolder.path)/\\(video.safeFileName).%(ext)s",
                 video.url
-            ]
+            ])
+            
+            process.arguments = args
             
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -316,7 +327,9 @@ class DownloaderViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var urlInput: String = ""
     @Published var selectedResolution: String = "1080" // 720, 1080, 2160
-    @Published var selectedFormatType: String = "original" // original, video, audio
+    @Published var downloadType: String = "video"
+    @Published var videoFormat: String = "mp4"
+    @Published var audioFormat: String = "mp3"
     @Published var destinationFolder: URL?
     
     // Filter and Sort states
@@ -412,7 +425,9 @@ class DownloaderViewModel: ObservableObject {
             videos[index].errorDescription = nil
         }
         
-        let formatType = self.selectedFormatType
+        let type = self.downloadType
+        let vFormat = self.videoFormat
+        let aFormat = self.audioFormat
         let resolution = self.selectedResolution
         let service = self.service
         
@@ -432,7 +447,9 @@ class DownloaderViewModel: ObservableObject {
                 group.addTask {
                     let stream = await service.downloadVideo(
                         video: video,
-                        format: formatType,
+                        downloadType: type,
+                        videoFormat: vFormat,
+                        audioFormat: aFormat,
                         resolution: resolution,
                         destinationFolder: destURL
                     )
@@ -686,23 +703,45 @@ struct MainView: View {
                 }
                 
                 HStack {
-                    Picker("Định dạng:", selection: $viewModel.selectedFormatType) {
-                        Text("Chất lượng cao nhất").tag("original")
-                        Text("Ghép MP4 (Video+Audio)").tag("video")
-                        Text("Chỉ Âm thanh (Audio)").tag("audio")
+                    Picker("Loại:", selection: $viewModel.downloadType) {
+                        Text("Video").tag("video")
+                        Text("Audio").tag("audio")
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 270)
+                    .pickerStyle(.segmented)
+                    .frame(width: 150)
+                    
+                    if viewModel.downloadType == "video" {
+                        Picker("Định dạng:", selection: $viewModel.videoFormat) {
+                            Text("mp4").tag("mp4")
+                            Text("mkv").tag("mkv")
+                            Text("webm").tag("webm")
+                            Text("mov").tag("mov")
+                            Text("avi").tag("avi")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
 
-                    Picker("Phân giải:", selection: $viewModel.selectedResolution) {
-                        Text("720p").tag("720")
-                        Text("1080p").tag("1080")
-                        Text("2K").tag("1440")
-                        Text("4K").tag("2160")
+                        Picker("Phân giải:", selection: $viewModel.selectedResolution) {
+                            Text("Cao nhất").tag("best")
+                            Text("720p").tag("720")
+                            Text("1080p").tag("1080")
+                            Text("2K").tag("1440")
+                            Text("4K").tag("2160")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 170)
+                    } else {
+                        Picker("Định dạng:", selection: $viewModel.audioFormat) {
+                            Text("mp3").tag("mp3")
+                            Text("m4a").tag("m4a")
+                            Text("aac").tag("aac")
+                            Text("opus").tag("opus")
+                            Text("wav").tag("wav")
+                            Text("flac").tag("flac")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 170)
-                    .disabled(viewModel.selectedFormatType != "video")
                     
                     Spacer()
                     

@@ -72,23 +72,45 @@ struct MainView: View {
                 }
                 
                 HStack {
-                    Picker("Định dạng:", selection: $viewModel.selectedFormatType) {
-                        Text("Chất lượng cao nhất").tag("original")
-                        Text("Ghép MP4 (Video+Audio)").tag("video")
-                        Text("Chỉ Âm thanh (Audio)").tag("audio")
+                    Picker("Loại:", selection: $viewModel.downloadType) {
+                        Text("Video").tag("video")
+                        Text("Audio").tag("audio")
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 270)
+                    .pickerStyle(.segmented)
+                    .frame(width: 150)
+                    
+                    if viewModel.downloadType == "video" {
+                        Picker("Định dạng:", selection: $viewModel.videoFormat) {
+                            Text("mp4").tag("mp4")
+                            Text("mkv").tag("mkv")
+                            Text("webm").tag("webm")
+                            Text("mov").tag("mov")
+                            Text("avi").tag("avi")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
 
-                    Picker("Phân giải:", selection: $viewModel.selectedResolution) {
-                        Text("720p").tag("720")
-                        Text("1080p").tag("1080")
-                        Text("2K").tag("1440")
-                        Text("4K").tag("2160")
+                        Picker("Phân giải:", selection: $viewModel.selectedResolution) {
+                            Text("Cao nhất").tag("best")
+                            Text("720p").tag("720")
+                            Text("1080p").tag("1080")
+                            Text("2K").tag("1440")
+                            Text("4K").tag("2160")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 170)
+                    } else {
+                        Picker("Định dạng:", selection: $viewModel.audioFormat) {
+                            Text("mp3").tag("mp3")
+                            Text("m4a").tag("m4a")
+                            Text("aac").tag("aac")
+                            Text("opus").tag("opus")
+                            Text("wav").tag("wav")
+                            Text("flac").tag("flac")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 170)
-                    .disabled(viewModel.selectedFormatType != "video")
                     
                     Spacer()
                     
