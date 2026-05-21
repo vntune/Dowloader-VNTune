@@ -126,7 +126,7 @@ class YTDLPService {
                 "--retries", "infinite",
                 "--fragment-retries", "infinite",
                 "-f", formatArg,
-                "-o", "\(destinationFolder.path)/%(title)s.%(ext)s",
+                "-o", "\(destinationFolder.path)/\(video.safeFileName).%(ext)s",
                 video.url
             ]
             

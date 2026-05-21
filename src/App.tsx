@@ -43,7 +43,8 @@ struct VideoItem: Identifiable, Codable, Equatable {
         // MacOS/Windows forbidden characters
         let invalidChars: Set<Character> = ["/", ":", "\\\\", "*", "?", "\\"", "<", ">", "|"]
         let cleanedTitle = title.filter { !invalidChars.contains($0) }
-        return String(cleanedTitle.prefix(200))
+        let shortened = String(cleanedTitle.prefix(200))
+        return shortened.replacingOccurrences(of: " ", with: "-")
     }
 }
 
@@ -204,7 +205,7 @@ class YTDLPService {
                 "--retries", "infinite",
                 "--fragment-retries", "infinite",
                 "-f", formatArg,
-                "-o", "\\(destinationFolder.path)/%(title)s.%(ext)s",
+                "-o", "\\(destinationFolder.path)/\\(video.safeFileName).%(ext)s",
                 video.url
             ]
             
@@ -769,7 +770,7 @@ struct VideoCellView: View {
             .cornerRadius(8)
             
             VStack(alignment: .leading, spacing: 6) {
-                Text(video.safeFileName)
+                Text(video.title)
                     .font(.system(.headline, design: .default))
                     .lineLimit(2)
                     .foregroundColor(.primary)

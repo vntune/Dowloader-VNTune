@@ -40,7 +40,8 @@ struct VideoItem: Identifiable, Codable, Equatable {
         // MacOS/Windows forbidden characters
         let invalidChars: Set<Character> = ["/", ":", "\\", "*", "?", "\"", "<", ">", "|"]
         let cleanedTitle = title.filter { !invalidChars.contains($0) }
-        return String(cleanedTitle.prefix(200))
+        let shortened = String(cleanedTitle.prefix(200))
+        return shortened.replacingOccurrences(of: " ", with: "-")
     }
 }
 

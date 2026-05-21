@@ -227,7 +227,7 @@ struct VideoCellView: View {
             .cornerRadius(8)
             
             VStack(alignment: .leading, spacing: 6) {
-                Text(video.safeFileName)
+                Text(video.title)
                     .font(.system(.headline, design: .default))
                     .lineLimit(2)
                     .foregroundColor(.primary)
