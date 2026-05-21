@@ -48,29 +48,65 @@ Quá trình luân chuyển dữ liệu diễn ra theo các bước sau:
    - Standard output của yt-dlp in ra tiến trình (vd: `[download]  45.0% of 50.00MiB`). Regex Parser liên tục "bắt" các con số này và truyền vào `AsyncStream`.
    - Giao diện (ProgressView) tự động React và nhích thanh tiến trình lên.
 
-## 🛠 Hướng dẫn Clone và Chạy mã (Setup & Build)
+## 🛠 Hướng dẫn Khởi tạo, Cấu hình và Build App chi tiết (Step-by-Step)
 
-Để biên dịch và chạy dự án này trên Xcode, bạn cần thực hiện cấu hình sau:
+Dưới đây là hướng dẫn từng bước chi tiết nhất để bạn có thể mang mã nguồn này vào Xcode, biên dịch và chạy thành công trên máy Mac của mình.
 
-1. **Khởi tạo Xcode Project:**
-   - Tạo một dự án macOS App mới trong Xcode 14+ (yêu cầu hỗ trợ tối thiểu Swift 5.7+ / macOS 13.0).
-   - Kéo tất cả 5 tệp `.swift` trong thư mục `swift-source` vào cây thư mục của dự án Xcode.
+### Bước 1: Chuẩn bị môi trường
+- Máy Mac đang chạy **macOS 13.0** (Ventura) trở lên (hỗ trợ tốt nhất trên chip Apple Silicon - M1/M2/M3/M4).
+- Cài đặt **Xcode 14** trở lên (từ App Store hoặc trang developer của Apple).
 
-2. **Nhúng Binary `yt-dlp`:**
-   - Tải file thực thi `yt-dlp_macos` từ [trang release chính thức của yt-dlp](https://github.com/yt-dlp/yt-dlp/releases).
-   - Kéo thả file `yt-dlp_macos` vào dự án Xcode. **Cực kỳ quan trọng**: Đảm bảo tệp này được tick chọn vào mục **"Copy items if needed"** và xuất hiện trong **"Copy Bundle Resources"** ở tab Build Phases.
-   - Mở Terminal, trỏ tới thư mục chứa file binary vừa kéo vào source và cấp quyền chạy lệnh: 
-     ```bash
-     chmod +x yt-dlp_macos
-     ```
+### Bước 2: Tạo dự án Xcode mới
+1. Mở Xcode, chọn **"Create a new Xcode project"**.
+2. Ở tab phía trên cùng, chọn **"macOS"**.
+3. Trong phần Application, chọn **"App"** và nhấn **Next**.
+4. Điền các thông tin:
+   - **Product Name:** `Video Downloader` (hoặc tên tùy ý).
+   - **Interface:** `SwiftUI`.
+   - **Language:** `Swift`.
+   - Bỏ chọn các ô *Use Core Data* và *Include Tests* (nếu có).
+5. Nhấn **Next** và chọn thư mục để lưu dự án, sau đó nhấn **Create**.
 
-3. **Tắt App Sandbox:**
-   - Mặc định, Xcode bật macOS App Sandbox khiến ứng dụng không thể chạy các binary con (như `yt-dlp`) hoặc truy cập file system tùy ý.
-   - Hãy vào Tab **Signing & Capabilities** của Project, xóa (dấu trừ) hạng mục **"App Sandbox"**. Mũi tên xanh sẽ xuất hiện để bạn cấp thẻ "Hardened Runtime".
+### Bước 3: Đưa tệp mã nguồn vào dự án
+1. Trong cửa sổ Xcode, ở cột bên trái (Project Navigator), hệ thống đã tạo sẵn 2 file là `<TênApp>App.swift` và `ContentView.swift`. Nhấn chuột phải vào 2 file này chọn **Delete** -> **Move to Trash**.
+2. Mở thư mục `swift-source` mà bạn vừa tải/clone về.
+3. Kéo toàn bộ 5 file `.swift` (`Models.swift`, `YTDLPService.swift`, `DownloaderViewModel.swift`, `MainView.swift`, `VideoDownloaderApp.swift`) vào cột bên trái của Xcode.
+4. Một bảng thông báo hiện ra, **BẮT BUỘC** tích chọn **"Copy items if needed"** và nhấn **Finish**.
 
-4. **Biên dịch (Build & Run):**
-   - Chọn scheme đích là Mac của bạn (vd: My Mac - ARM64).
-   - Nhấn `Cmd + R` để chạy ứng dụng. Trải nghiệm tải với thư mục do bạn chỉ định!
+### Bước 4: Tải và thiết lập Binary `yt-dlp` (Trái tim của ứng dụng)
+Ứng dụng CẦN file thực thi `yt-dlp` của macOS để hoạt động.
+1. Truy cập trang phát hành chính thức: [yt-dlp Releases](https://github.com/yt-dlp/yt-dlp/releases).
+2. Tìm và tải xuống file có tên **`yt-dlp_macos`**.
+3. Kéo thả file `yt-dlp_macos` vừa tải vào cột bên trái của Xcode (cùng chỗ với các file mã nguồn Swift). Tích chọn **"Copy items if needed"**. 
+4. **Kiểm tra Bundle Resources:** 
+   - Bấm vào tên Project của bạn ở góc trên cùng bên trái. 
+   - Chọn mục **TARGETS**.
+   - Sang tab **Build Phases**, mở rộng mục **Copy Bundle Resources**. 
+   - Đảm bảo rằng file `yt-dlp_macos` đã hiển thị trong danh sách này. Nếu chưa, bấm dấu cộng `+` và thêm nó vào.
+5. **Cấp quyền thực thi cho file:**
+   - Mở ứng dụng **Terminal** trên máy Mac.
+   - Gõ `chmod +x ` (nhớ có 1 dấu cách ở cuối).
+   - Đừng nhấn Enter vội. Hãy kéo file `yt-dlp_macos` TỪ THƯ MỤC LƯU TRỮ GỐC TRÊN MÁY (nơi chứa file bạn add vào source) thả vào cửa sổ Terminal để nó tự tạo đường dẫn.
+   - Nhấn **Enter**. Thao tác này cấp quyền cho file báo cho macOS biết đây là một file chương trình có thể chạy.
+
+### Bước 5: Tắt App Sandbox (Cực kỳ quan trọng)
+Mặc định macOS giới hạn quyền của ứng dụng (Sandbox) khiến nó không thể chạy lệnh ngầm (chạy yt-dlp) hay lưu file vào thư mục bất kỳ.
+1. Nhấn vào tên Project ở cột trái.
+2. Chọn mục **TARGETS**.
+3. Chọn tab **Signing & Capabilities**.
+4. Tìm đến khối có tên **"App Sandbox"**. 
+5. Bấm vào biểu tượng **thùng rác** (hoặc dấu `X` ở góc) để XÓA HOÀN TOÀN khối chức năng này.
+6. (Tùy chọn) Nếu hệ thống hiện dấu cộng `+ Capability`, bạn có thể thêm **Hardened Runtime** để thay thế, nhưng xóa App Sandbox là bắt buộc để code hiện tại chạy trơn tru cục bộ.
+
+### Bước 6: Build & Run (Chạy ứng dụng)
+1. Ở thanh công cụ trên cùng của Xcode, đảm bảo thiết bị đích (Scheme) đang chọn là **My Mac**.
+2. Nhấn nút **Play** (hình tam giác) hoặc dùng phím tắt `Cmd + R` để biên dịch ứng dụng.
+3. Chờ vài giây ("Build Succeeded"). Cửa sổ ứng dụng "Video Downloader" sẽ tự động bật lên.
+4. **Test thử:** 
+   - Copy một đường link YouTube dán vào ô nhập liệu.
+   - Bấm "Quét".
+   - Sau khi danh sách hiện ra, chọn thư mục lưu (ví dụ Desktop/Downloads).
+   - Tích chọn video và nhấn Bắt đầu tải!
 
 ---
-*Lưu ý: Ứng dụng phụ thuộc vào yt-dlp, vì thế tốc độ tải hoặc lỗi phát sinh trong thời gian thực chủ yếu do cấu trúc YouTube hoặc luồng mạng. Nếu gặp lỗi tải, cân nhắc việc nhúng thêm binary `ffmpeg` vào dự án.*
+*Lưu ý nâng cao (Tích hợp FFmpeg): yt-dlp tự động tải định dạng cao nhất, nhưng YouTube thường tách riêng hình ảnh và âm thanh ở video chất lượng cao (1080p, 4K). Để video ghép lại có tiếng, máy Mac của bạn cần cài đặt `ffmpeg` (có thể cài qua Terminal bằng lệnh `brew install ffmpeg` hoặc đóng gói ffmpeg chung vào project theo cách tương tự yt-dlp).*
