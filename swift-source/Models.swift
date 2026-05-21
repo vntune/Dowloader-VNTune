@@ -45,6 +45,9 @@ struct VideoItem: Identifiable, Codable, Equatable {
     // 2. Computed Property for safeFileName based on Settings
     var safeFileName: String {
         let strategyValue = UserDefaults.standard.integer(forKey: "fileNameStrategy")
+        let maxLenObj = UserDefaults.standard.object(forKey: "maxFileNameLength")
+        let maxLength = maxLenObj == nil ? 200 : (maxLenObj as? Int ?? 200)
+        
         var strategy = NamingStrategy(rawValue: strategyValue)
         // Fallback or mapping for old value 2
         if strategy == nil || strategyValue == 2 {
@@ -57,12 +60,12 @@ struct VideoItem: Identifiable, Codable, Equatable {
         case .original:
             // Filter OS-forbidden characters to avoid file write errors, but keep everything else including spaces and unicode
             let cleanedTitle = title.filter { !invalidChars.contains($0) }
-            return String(cleanedTitle.prefix(200))
+            return String(cleanedTitle.prefix(maxLength))
             
         case .removeSpecialAndSpaces:
             let allowedCharacterSet = CharacterSet.alphanumerics.union(CharacterSet.whitespaces)
             let cleanedTitle = title.components(separatedBy: allowedCharacterSet.inverted).joined()
-            let shortened = String(cleanedTitle.prefix(200))
+            let shortened = String(cleanedTitle.prefix(maxLength))
             return shortened.replacingOccurrences(of: " ", with: "_")
         }
     }

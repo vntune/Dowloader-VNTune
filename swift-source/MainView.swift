@@ -349,10 +349,12 @@ struct SettingsView: View {
     @AppStorage("maxConcurrentDownloads") var maxConcurrentDownloads: Int = 3
     @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
     @AppStorage("fileNameStrategy") var fileNameStrategy: Int = 1
+    @AppStorage("maxFileNameLength") var maxFileNameLength: Int = 200
     
     @State private var draftMaxConcurrentDownloads: Int = 3
     @State private var draftFetchPageSize: Int = 50
     @State private var draftFileNameStrategy: Int = 1
+    @State private var draftMaxFileNameLength: Int = 200
     
     @Environment(\.dismiss) var dismiss
     
@@ -385,6 +387,14 @@ struct SettingsView: View {
                 }
                 .padding(.top, 10)
                 
+                Stepper(value: $draftMaxFileNameLength, in: 10...255, step: 5) {
+                    HStack {
+                        Text("Giới hạn số ký tự tên file:")
+                        Text("\(draftMaxFileNameLength)")
+                            .bold()
+                    }
+                }
+                
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Cài đặt khác")
                         .font(.headline)
@@ -408,6 +418,7 @@ struct SettingsView: View {
                     maxConcurrentDownloads = draftMaxConcurrentDownloads
                     fetchPageSize = draftFetchPageSize
                     fileNameStrategy = draftFileNameStrategy
+                    maxFileNameLength = draftMaxFileNameLength
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -415,11 +426,12 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 480, height: 420)
+        .frame(width: 480, height: 460)
         .onAppear {
             draftMaxConcurrentDownloads = maxConcurrentDownloads
             draftFetchPageSize = fetchPageSize
             draftFileNameStrategy = fileNameStrategy
+            draftMaxFileNameLength = maxFileNameLength
         }
     }
 }
