@@ -191,7 +191,7 @@ class YTDLPService {
             
             var formatArg = ""
             switch format {
-            case "original": formatArg = "best"
+            case "original": formatArg = "bestvideo+bestaudio/best"
             case "audio": formatArg = "bestaudio/best"
             default: formatArg = "bestvideo[height<=\\(resolution)]+bestaudio/best"
             }
@@ -608,7 +608,7 @@ struct MainView: View {
                 
                 HStack {
                     Picker("Định dạng:", selection: $viewModel.selectedFormatType) {
-                        Text("Gốc (Khuyên dùng/Nhanh)").tag("original")
+                        Text("Chất lượng cao nhất").tag("original")
                         Text("Ghép MP4 (Video+Audio)").tag("video")
                         Text("Chỉ Âm thanh (Audio)").tag("audio")
                     }
@@ -778,6 +778,14 @@ struct VideoCellView: View {
                     Label("\\(video.views.formatted())", systemImage: "eye")
                     Label("\\(video.likes.formatted())", systemImage: "hand.thumbsup")
                     Label(video.uploadDate.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
+                    if let url = URL(string: video.url) {
+                        Link(destination: url) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "link")
+                                Text("Xem Video")
+                            }
+                        }
+                    }
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)

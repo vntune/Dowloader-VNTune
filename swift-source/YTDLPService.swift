@@ -113,7 +113,7 @@ class YTDLPService {
             
             var formatArg = ""
             switch format {
-            case "original": formatArg = "best"
+            case "original": formatArg = "bestvideo+bestaudio/best"
             case "audio": formatArg = "bestaudio/best"
             default: formatArg = "bestvideo[height<=\(resolution)]+bestaudio/best"
             }
