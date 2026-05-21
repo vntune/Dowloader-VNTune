@@ -55,66 +55,75 @@ class YTDLPService {
         process.standardOutput = pipe
         
         activeProcesses.append(process)
-        try process.run()
         
-        // Wait for EOF using modernized Swift reads
-        guard let data = try? pipe.fileHandleForReading.readToEnd() else {
-            process.terminate()
-            throw YTDLPError.processFailed(-1)
-        }
+        // Đẩy tác vụ chạy lệnh và phân tích JSON nặng sang Background để tránh Đơ UI
+        let items: [VideoItem]? = try? await Task.detached(priority: .userInitiated) {
+            try process.run()
+            
+            guard let data = try? pipe.fileHandleForReading.readToEnd() else {
+                process.terminate()
+                return [VideoItem]()
+            }
+            
+            process.waitUntilExit()
+            
+            let outputString = String(decoding: data, as: UTF8.self)
+            var parsedItems: [VideoItem] = []
+            let decoder = JSONDecoder()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyyMMdd" // yt-dlp upload_date format
+            
+            // Parse JSON Lines
+            let lines = outputString.components(separatedBy: .newlines).filter { !$0.isEmpty }
+            for line in lines {
+                if let lineData = line.data(using: .utf8),
+                   let rawVideo = try? decoder.decode(YTDLPVideoResponse.self, from: lineData) {
+                    
+                    let uploadDate = dateFormatter.date(from: rawVideo.upload_date ?? "") ?? Date()
+                    
+                    let item = VideoItem(
+                        id: rawVideo.id,
+                        url: rawVideo.webpage_url ?? "",
+                        title: rawVideo.title ?? "Unknown Title",
+                        thumbnailURL: rawVideo.thumbnail,
+                        duration: rawVideo.duration ?? 0,
+                        views: rawVideo.view_count ?? 0,
+                        likes: rawVideo.like_count ?? 0,
+                        uploadDate: uploadDate,
+                        status: .idle
+                    )
+                    parsedItems.append(item)
+                }
+            }
+            return parsedItems
+        }.value
         
-        process.waitUntilExit()
         activeProcesses.removeAll { $0 == process }
         
-        if process.terminationStatus != 0 {
-            throw YTDLPError.processFailed(process.terminationStatus)
-        }
-        
-        let outputString = String(decoding: data, as: UTF8.self)
-        var items: [VideoItem] = []
-        let decoder = JSONDecoder()
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd" // yt-dlp upload_date format
-        
-        // Parse JSON Lines
-        let lines = outputString.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        for line in lines {
-            if let lineData = line.data(using: .utf8),
-               let rawVideo = try? decoder.decode(YTDLPVideoResponse.self, from: lineData) {
-                
-                let uploadDate = dateFormatter.date(from: rawVideo.upload_date ?? "") ?? Date()
-                
-                let item = VideoItem(
-                    id: rawVideo.id,
-                    url: rawVideo.webpage_url ?? "",
-                    title: rawVideo.title ?? "Unknown Title",
-                    thumbnailURL: rawVideo.thumbnail,
-                    duration: rawVideo.duration ?? 0,
-                    views: rawVideo.view_count ?? 0,
-                    likes: rawVideo.like_count ?? 0,
-                    uploadDate: uploadDate,
-                    status: .idle
-                )
-                items.append(item)
-            }
-        }
-        
-        return items
+        return items ?? []
     }
     
     // 2 & 3. Download Video with AsyncStream yielding progress
-    func downloadVideo(video: VideoItem, resolution: String, destinationFolder: URL) -> AsyncStream<Double> {
+    func downloadVideo(video: VideoItem, format: String, resolution: String, destinationFolder: URL) -> AsyncStream<Double> {
         AsyncStream { continuation in
             let executableURL = self.executableURL
             
             let process = Process()
             process.executableURL = executableURL
+            
+            var formatArg = ""
+            switch format {
+            case "original": formatArg = "best"
+            case "audio": formatArg = "bestaudio/best"
+            default: formatArg = "bestvideo[height<=\(resolution)]+bestaudio/best"
+            }
+            
             process.arguments = [
                 "--ffmpeg-location", ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--restrict-filenames",
-                "-f", "bestvideo[height<=\(resolution)]+bestaudio/best",
+                "-f", formatArg,
                 "-o", "\(destinationFolder.path)/%(title)s.%(ext)s",
                 video.url
             ]

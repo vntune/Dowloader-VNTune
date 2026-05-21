@@ -59,14 +59,23 @@ struct MainView: View {
                 }
                 
                 HStack {
-                    Picker("Độ phân giải:", selection: $viewModel.selectedResolution) {
+                    Picker("Định dạng:", selection: $viewModel.selectedFormatType) {
+                        Text("Gốc (Khuyên dùng/Nhanh)").tag("original")
+                        Text("Ghép MP4 (Video+Audio)").tag("video")
+                        Text("Chỉ Âm thanh (Audio)").tag("audio")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 270)
+
+                    Picker("Phân giải:", selection: $viewModel.selectedResolution) {
                         Text("720p").tag("720")
                         Text("1080p").tag("1080")
                         Text("2K").tag("1440")
                         Text("4K").tag("2160")
                     }
                     .pickerStyle(.menu)
-                    .frame(width: 200)
+                    .frame(width: 170)
+                    .disabled(viewModel.selectedFormatType != "video")
                     
                     Spacer()
                     

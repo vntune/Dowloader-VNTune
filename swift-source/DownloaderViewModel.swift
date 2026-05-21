@@ -14,6 +14,7 @@ class DownloaderViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var urlInput: String = ""
     @Published var selectedResolution: String = "1080" // 720, 1080, 2160
+    @Published var selectedFormatType: String = "original" // original, video, audio
     @Published var destinationFolder: URL?
     
     // Filter and Sort states
@@ -101,6 +102,7 @@ class DownloaderViewModel: ObservableObject {
             
             let stream = service.downloadVideo(
                 video: videos[index],
+                format: selectedFormatType,
                 resolution: selectedResolution,
                 destinationFolder: destURL
             )
