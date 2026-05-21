@@ -1,0 +1,6 @@
+{
+  "name": "Swift Code Generator",
+  "description": "A clean UI presenting the requested Swift 5.7+ code for the Video Downloader models and yt-dlp parser.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
