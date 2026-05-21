@@ -14,6 +14,8 @@ struct DownloadProgressData: Equatable {
     var speed: String
     var totalSize: String
     var eta: String
+    var isFinished: Bool = false
+    var error: String? = nil
 }
 
 struct VideoItem: Identifiable, Codable, Equatable {
@@ -31,6 +33,7 @@ struct VideoItem: Identifiable, Codable, Equatable {
     var downloadEta: String = ""
     var isSelected: Bool = false
     var status: VideoStatus = .idle
+    var errorDescription: String? = nil
     
     // 2. Computed Property for safeFileName
     var safeFileName: String {

@@ -123,6 +123,8 @@ class YTDLPService {
                 "--newline",
                 "--no-colors",
                 "--restrict-filenames",
+                "--retries", "infinite",
+                "--fragment-retries", "infinite",
                 "-f", formatArg,
                 "-o", "\(destinationFolder.path)/%(title)s.%(ext)s",
                 video.url
@@ -130,6 +132,8 @@ class YTDLPService {
             
             let pipe = Pipe()
             process.standardOutput = pipe
+            let errPipe = Pipe()
+            process.standardError = errPipe
             
             Task { @MainActor in
                 self.activeProcesses.append(process)
@@ -149,10 +153,26 @@ class YTDLPService {
                 }
             }
             
+            var stderrString = ""
+            let errHandle = errPipe.fileHandleForReading
+            errHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
+                    stderrString += output
+                }
+            }
+            
             process.terminationHandler = { p in
                 fileHandle.readabilityHandler = nil
+                errHandle.readabilityHandler = nil
                 Task { @MainActor [weak self] in
                     self?.activeProcesses.removeAll { $0 == p }
+                }
+                
+                if p.terminationStatus == 0 {
+                    continuation.yield(DownloadProgressData(progress: 1.0, speed: "", totalSize: "", eta: "", isFinished: true, error: nil))
+                } else {
+                    continuation.yield(DownloadProgressData(progress: 0.0, speed: "", totalSize: "", eta: "", isFinished: true, error: stderrString.trimmingCharacters(in: .whitespacesAndNewlines)))
                 }
                 continuation.finish()
             }
@@ -160,6 +180,7 @@ class YTDLPService {
             do {
                 try process.run()
             } catch {
+                continuation.yield(DownloadProgressData(progress: 0.0, speed: "", totalSize: "", eta: "", isFinished: true, error: "Lỗi thực thi yt-dlp: \(error.localizedDescription)"))
                 continuation.finish()
             }
         }

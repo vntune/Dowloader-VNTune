@@ -24,9 +24,15 @@ struct MainView: View {
     
     var loadingView: some View {
         VStack(spacing: 20) {
-            ProgressView(value: dependencyManager.progress)
-                .progressViewStyle(.linear)
-                .frame(width: 300)
+            if dependencyManager.progress > 0 {
+                ProgressView(value: dependencyManager.progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 300)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .scaleEffect(1.5)
+            }
             
             Text(dependencyManager.statusMessage)
                 .font(.headline)
@@ -275,6 +281,13 @@ struct VideoCellView: View {
                             }
                             .buttonStyle(.link)
                             .font(.caption)
+                        } else if video.status == .error {
+                            if let errorMsg = video.errorDescription {
+                                Text(errorMsg)
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                                    .lineLimit(2)
+                            }
                         }
                     }
                     .padding(.top, 2)

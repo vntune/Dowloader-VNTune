@@ -99,6 +99,7 @@ class DownloaderViewModel: ObservableObject {
         for index in videos.indices where videos[index].isSelected && videos[index].status != .success {
             videos[index].status = .downloading
             videos[index].downloadProgress = 0.0
+            videos[index].errorDescription = nil
             
             let stream = service.downloadVideo(
                 video: videos[index],
@@ -107,7 +108,14 @@ class DownloaderViewModel: ObservableObject {
                 destinationFolder: destURL
             )
             
+            var finalError: String? = nil
+            
             for await data in stream {
+                if data.isFinished {
+                    finalError = data.error
+                    break
+                }
+                
                 // Real-time main actor update from AsyncStream yield
                 if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
                     self.videos[currentIndex].downloadProgress = data.progress
@@ -117,10 +125,15 @@ class DownloaderViewModel: ObservableObject {
                 }
             }
             
-            // Mark as success when stream finishes nicely
+            // Mark as success or error
             if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
-                self.videos[currentIndex].status = .success
-                self.videos[currentIndex].downloadProgress = 1.0
+                if let errorMsg = finalError {
+                    self.videos[currentIndex].status = .error
+                    self.videos[currentIndex].errorDescription = errorMsg
+                } else {
+                    self.videos[currentIndex].status = .success
+                    self.videos[currentIndex].downloadProgress = 1.0
+                }
             }
         }
     }

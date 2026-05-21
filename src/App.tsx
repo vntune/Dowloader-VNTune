@@ -17,6 +17,8 @@ struct DownloadProgressData: Equatable {
     var speed: String
     var totalSize: String
     var eta: String
+    var isFinished: Bool = false
+    var error: String? = nil
 }
 
 struct VideoItem: Identifiable, Codable, Equatable {
@@ -34,6 +36,7 @@ struct VideoItem: Identifiable, Codable, Equatable {
     var downloadEta: String = ""
     var isSelected: Bool = false
     var status: VideoStatus = .idle
+    var errorDescription: String? = nil
     
     // 2. Computed Property for safeFileName
     var safeFileName: String {
@@ -198,6 +201,8 @@ class YTDLPService {
                 "--newline",
                 "--no-colors",
                 "--restrict-filenames",
+                "--retries", "infinite",
+                "--fragment-retries", "infinite",
                 "-f", formatArg,
                 "-o", "\\(destinationFolder.path)/%(title)s.%(ext)s",
                 video.url
@@ -205,6 +210,8 @@ class YTDLPService {
             
             let pipe = Pipe()
             process.standardOutput = pipe
+            let errPipe = Pipe()
+            process.standardError = errPipe
             
             Task { @MainActor in
                 self.activeProcesses.append(process)
@@ -224,10 +231,26 @@ class YTDLPService {
                 }
             }
             
+            var stderrString = ""
+            let errHandle = errPipe.fileHandleForReading
+            errHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if !data.isEmpty, let output = String(data: data, encoding: .utf8) {
+                    stderrString += output
+                }
+            }
+            
             process.terminationHandler = { p in
                 fileHandle.readabilityHandler = nil
+                errHandle.readabilityHandler = nil
                 Task { @MainActor [weak self] in
                     self?.activeProcesses.removeAll { $0 == p }
+                }
+                
+                if p.terminationStatus == 0 {
+                    continuation.yield(DownloadProgressData(progress: 1.0, speed: "", totalSize: "", eta: "", isFinished: true, error: nil))
+                } else {
+                    continuation.yield(DownloadProgressData(progress: 0.0, speed: "", totalSize: "", eta: "", isFinished: true, error: stderrString.trimmingCharacters(in: .whitespacesAndNewlines)))
                 }
                 continuation.finish()
             }
@@ -235,6 +258,7 @@ class YTDLPService {
             do {
                 try process.run()
             } catch {
+                continuation.yield(DownloadProgressData(progress: 0.0, speed: "", totalSize: "", eta: "", isFinished: true, error: "Lỗi thực thi yt-dlp: \\(error.localizedDescription)"))
                 continuation.finish()
             }
         }
@@ -351,6 +375,7 @@ class DownloaderViewModel: ObservableObject {
         for index in videos.indices where videos[index].isSelected && videos[index].status != .success {
             videos[index].status = .downloading
             videos[index].downloadProgress = 0.0
+            videos[index].errorDescription = nil
             
             let stream = service.downloadVideo(
                 video: videos[index],
@@ -359,7 +384,14 @@ class DownloaderViewModel: ObservableObject {
                 destinationFolder: destURL
             )
             
+            var finalError: String? = nil
+            
             for await data in stream {
+                if data.isFinished {
+                    finalError = data.error
+                    break
+                }
+                
                 // Real-time main actor update from AsyncStream yield
                 if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
                     self.videos[currentIndex].downloadProgress = data.progress
@@ -369,10 +401,15 @@ class DownloaderViewModel: ObservableObject {
                 }
             }
             
-            // Mark as success when stream finishes nicely
+            // Mark as success or error
             if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
-                self.videos[currentIndex].status = .success
-                self.videos[currentIndex].downloadProgress = 1.0
+                if let errorMsg = finalError {
+                    self.videos[currentIndex].status = .error
+                    self.videos[currentIndex].errorDescription = errorMsg
+                } else {
+                    self.videos[currentIndex].status = .success
+                    self.videos[currentIndex].downloadProgress = 1.0
+                }
             }
         }
     }
@@ -390,14 +427,170 @@ class DownloaderViewModel: ObservableObject {
 }
 `;
 
+const dependencyManagerCode = `import Foundation
+import Combine
+
+@MainActor
+class DependencyManager: ObservableObject {
+    @Published var isReady = false
+    @Published var statusMessage = "Khởi tạo môi trường..."
+    @Published var progress: Double = 0.0 // Giá trị từ 0 đến 1
+    
+    let supportDirectory: URL
+    let ytDlpURL: URL
+    let ffmpegURL: URL
+    
+    init() {
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+        ytDlpURL = supportDirectory.appendingPathComponent("yt-dlp_macos")
+        ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
+    }
+    
+    func setupDependencies() async {
+        let fileManager = FileManager.default
+        isReady = false
+        progress = 0.0
+        
+        do {
+            if !fileManager.fileExists(atPath: supportDirectory.path) {
+                try fileManager.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+            }
+            
+            // 1. Tải và thiết lập yt-dlp_macos
+            if !fileManager.fileExists(atPath: ytDlpURL.path) {
+                statusMessage = "Đang tải yt-dlp (Core downloader)..."
+                try await downloadFile(from: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos", to: ytDlpURL)
+            }
+            
+            statusMessage = "Đang cấp quyền thực thi cho yt-dlp..."
+            try await setExecutable(url: ytDlpURL)
+            
+            statusMessage = "Đang kiểm tra và cập nhật yt-dlp..."
+            _ = try? await runCommand(executable: ytDlpURL, arguments: ["-U"])
+            
+            // 2. Tải và thiết lập ffmpeg (để ghép hình và âm thanh phân giải cao)
+            if !fileManager.fileExists(atPath: ffmpegURL.path) {
+                statusMessage = "Đang tải FFmpeg (hỗ trợ ghép 1080p+)..."
+                let zipURL = supportDirectory.appendingPathComponent("ffmpeg.zip")
+                try await downloadFile(from: "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-osx-64.zip", to: zipURL)
+                
+                statusMessage = "Đang giải nén FFmpeg..."
+                _ = try? await runCommand(executable: URL(fileURLWithPath: "/usr/bin/unzip"), arguments: ["-o", zipURL.path, "-d", supportDirectory.path])
+                
+                try await setExecutable(url: ffmpegURL)
+                try? fileManager.removeItem(at: zipURL)
+            }
+            
+            statusMessage = "Cài đặt thành công! Đang khởi động..."
+            try await Task.sleep(nanoseconds: 500_000_000)
+            isReady = true
+        } catch {
+            statusMessage = "Lỗi cài đặt: \\(error.localizedDescription)"
+        }
+    }
+    
+    private func downloadFile(from urlString: String, to destination: URL) async throws {
+        guard let url = URL(string: urlString) else { throw URLError(.badURL) }
+        
+        self.progress = 0.0
+        
+        // Sử dụng download(from:) thay vì URLSession.bytes để tránh vòng lặp từng byte vốn gây đơ UI nghiêm trọng.
+        let (tempURL, response) = try await URLSession.shared.download(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse, 
+              (200...299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        
+        try fileManager.moveItem(at: tempURL, to: destination)
+        
+        self.progress = 1.0
+    }
+    
+    private func setExecutable(url: URL) async throws {
+        try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/chmod")
+            process.arguments = ["+x", url.path]
+            try process.run()
+            process.waitUntilExit()
+        }.value
+    }
+    
+    private func runCommand(executable: URL, arguments: [String]) async throws -> String {
+        return try await Task.detached {
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = arguments
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            try process.run()
+            process.waitUntilExit()
+            guard let data = try? pipe.fileHandleForReading.readToEnd() else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }.value
+    }
+}
+`;
+
 const viewsCode = `import SwiftUI
 import AppKit
 
 struct MainView: View {
     @StateObject private var viewModel = DownloaderViewModel()
+    @StateObject private var dependencyManager = DependencyManager()
     @State private var selectAll: Bool = false
     
     var body: some View {
+        Group {
+            if dependencyManager.isReady {
+                mainContent
+            } else {
+                loadingView
+            }
+        }
+        .frame(minWidth: 800, minHeight: 600)
+        .onAppear {
+            Task {
+                await dependencyManager.setupDependencies()
+            }
+        }
+    }
+    
+    var loadingView: some View {
+        VStack(spacing: 20) {
+            if dependencyManager.progress > 0 {
+                ProgressView(value: dependencyManager.progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 300)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .scaleEffect(1.5)
+            }
+            
+            Text(dependencyManager.statusMessage)
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            if dependencyManager.statusMessage.contains("Lỗi") {
+                Button("Thử lại") {
+                    Task { await dependencyManager.setupDependencies() }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+    }
+    
+    var mainContent: some View {
         VStack(spacing: 0) {
             // 1. Header / Input Section
             VStack(spacing: 16) {
@@ -531,7 +724,6 @@ struct MainView: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(minWidth: 800, minHeight: 600)
     }
     
     // macOS NSOpenPanel
@@ -631,6 +823,13 @@ struct VideoCellView: View {
                             }
                             .buttonStyle(.link)
                             .font(.caption)
+                        } else if video.status == .error {
+                            if let errorMsg = video.errorDescription {
+                                Text(errorMsg)
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                                    .lineLimit(2)
+                            }
                         }
                     }
                     .padding(.top, 2)
@@ -677,7 +876,7 @@ struct VideoDownloaderApp: App {
 }
 `
 
-type Tab = 'models' | 'service' | 'viewmodel' | 'views' | 'app';
+type Tab = 'models' | 'service' | 'viewmodel' | 'views' | 'dependency' | 'app';
 
 export default function App() {
   const [copied, setCopied] = useState(false);
@@ -687,6 +886,7 @@ export default function App() {
     activeTab === 'models' ? modelsCode : 
     activeTab === 'service' ? serviceCode : 
     activeTab === 'viewmodel' ? viewModelCode :
+    activeTab === 'dependency' ? dependencyManagerCode :
     activeTab === 'views' ? viewsCode :
     appEntryCode;
 
@@ -745,6 +945,17 @@ export default function App() {
           >
             <FileCode2 className="w-4 h-4" />
             <span>DownloaderViewModel.swift</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('dependency')}
+            className={`flex items-center space-x-2 px-4 py-2 border-b-2 transition-colors ${
+              activeTab === 'dependency' 
+                ? 'border-blue-500 text-white' 
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <FileCode2 className="w-4 h-4" />
+            <span>DependencyManager.swift</span>
           </button>
           <button
             onClick={() => setActiveTab('views')}
