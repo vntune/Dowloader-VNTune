@@ -937,6 +937,10 @@ struct VideoCellView: View {
 struct SettingsView: View {
     @AppStorage("maxConcurrentDownloads") var maxConcurrentDownloads: Int = 3
     @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
+    
+    @State private var draftMaxConcurrentDownloads: Int = 3
+    @State private var draftFetchPageSize: Int = 50
+    
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
@@ -946,18 +950,18 @@ struct SettingsView: View {
                 .bold()
             
             Form {
-                Stepper(value: $maxConcurrentDownloads, in: 1...10) {
+                Stepper(value: $draftMaxConcurrentDownloads, in: 1...10) {
                     HStack {
                         Text("Số video tải xuống cùng lúc:")
-                        Text("\\(maxConcurrentDownloads)")
+                        Text("\\(draftMaxConcurrentDownloads)")
                             .bold()
                     }
                 }
                 
-                Stepper(value: $fetchPageSize, in: 10...200, step: 10) {
+                Stepper(value: $draftFetchPageSize, in: 10...200, step: 10) {
                     HStack {
                         Text("Số video mỗi lần quét/tải thêm:")
-                        Text("\\(fetchPageSize)")
+                        Text("\\(draftFetchPageSize)")
                             .bold()
                     }
                 }
@@ -979,12 +983,23 @@ struct SettingsView: View {
                 Button("Đóng") {
                     dismiss()
                 }
+                .keyboardShortcut(.cancelAction)
+                
+                Button("Lưu") {
+                    maxConcurrentDownloads = draftMaxConcurrentDownloads
+                    fetchPageSize = draftFetchPageSize
+                    dismiss()
+                }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
             }
         }
         .padding()
-        .frame(width: 450, height: 280)
+        .frame(width: 480, height: 380)
+        .onAppear {
+            draftMaxConcurrentDownloads = maxConcurrentDownloads
+            draftFetchPageSize = fetchPageSize
+        }
     }
 }
 `
