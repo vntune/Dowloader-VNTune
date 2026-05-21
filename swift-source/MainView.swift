@@ -5,6 +5,7 @@ struct MainView: View {
     @StateObject private var viewModel = DownloaderViewModel()
     @StateObject private var dependencyManager = DependencyManager()
     @State private var selectAll: Bool = false
+    @State private var showingSettings = false
     
     var body: some View {
         Group {
@@ -62,6 +63,12 @@ struct MainView: View {
                     }
                     .controlSize(.large)
                     .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading)
+                    
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gearshape")
+                    }
+                    .controlSize(.large)
+                    .help("Cài đặt hệ thống")
                 }
                 
                 HStack {
@@ -142,7 +149,7 @@ struct MainView: View {
                 if !viewModel.videos.isEmpty {
                     HStack {
                         Spacer()
-                        Button("Tải thêm 50 video") {
+                        Button("Tải thêm video") {
                             Task { await viewModel.loadMore() }
                         }
                         .padding(.vertical)
@@ -181,6 +188,9 @@ struct MainView: View {
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
         }
     }
     
@@ -290,11 +300,21 @@ struct VideoCellView: View {
                             .buttonStyle(.link)
                             .font(.caption)
                         } else if video.status == .error {
-                            if let errorMsg = video.errorDescription {
-                                Text(errorMsg)
-                                    .font(.caption2)
-                                    .foregroundColor(.red)
-                                    .lineLimit(2)
+                            HStack {
+                                if let errorMsg = video.errorDescription {
+                                    Text(errorMsg)
+                                        .font(.caption2)
+                                        .foregroundColor(.red)
+                                        .lineLimit(2)
+                                }
+                                Button {
+                                    viewModel.retryDownload(for: video.id)
+                                } label: {
+                                    Label("Thử lại", systemImage: "arrow.clockwise")
+                                }
+                                .buttonStyle(.borderless)
+                                .font(.caption2)
+                                .foregroundColor(.blue)
                             }
                         }
                     }
@@ -322,5 +342,59 @@ struct VideoCellView: View {
         case .error: return .red
         default: return .clear
         }
+    }
+}
+
+struct SettingsView: View {
+    @AppStorage("maxConcurrentDownloads") var maxConcurrentDownloads: Int = 3
+    @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Cài đặt hệ thống")
+                .font(.title2)
+                .bold()
+            
+            Form {
+                Stepper(value: $maxConcurrentDownloads, in: 1...10) {
+                    HStack {
+                        Text("Số video tải xuống cùng lúc:")
+                        Text("\(maxConcurrentDownloads)")
+                            .bold()
+                    }
+                }
+                
+                Stepper(value: $fetchPageSize, in: 10...200, step: 10) {
+                    HStack {
+                        Text("Số video mỗi lần quét/tải thêm:")
+                        Text("\(fetchPageSize)")
+                            .bold()
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Cài đặt khác")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    
+                    Toggle("Giới hạn băng thông (Sắp ra mắt)", isOn: .constant(false))
+                        .disabled(true)
+                }
+                .padding(.top, 10)
+            }
+            .padding()
+            
+            HStack {
+                Spacer()
+                Button("Đóng") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 450, height: 280)
     }
 }

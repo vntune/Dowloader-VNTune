@@ -23,7 +23,10 @@ class DownloaderViewModel: ObservableObject {
     
     // Pagination tracking
     private var currentStartIndex: Int = 1
-    private let pageSize: Int = 50
+    private var pageSize: Int {
+        let saved = UserDefaults.standard.integer(forKey: "fetchPageSize")
+        return saved > 0 ? saved : 50
+    }
     
     private let service = YTDLPService()
     
@@ -96,45 +99,88 @@ class DownloaderViewModel: ObservableObject {
     func startDownloadSelectedVideos() async {
         guard let destURL = destinationFolder else { return }
         
-        for index in videos.indices where videos[index].isSelected && videos[index].status != .success {
+        let savedMax = UserDefaults.standard.integer(forKey: "maxConcurrentDownloads")
+        let maxConcurrentDownloads = savedMax > 0 ? savedMax : 3
+        
+        let indicesToDownload = videos.indices.filter { videos[$0].isSelected && videos[$0].status != .success }
+        
+        for index in indicesToDownload {
             videos[index].status = .downloading
             videos[index].downloadProgress = 0.0
             videos[index].errorDescription = nil
+        }
+        
+        let formatType = self.selectedFormatType
+        let resolution = self.selectedResolution
+        let service = self.service
+        
+        await withTaskGroup(of: Void.self) { group in
+            var activeTasks = 0
+            var iterator = indicesToDownload.makeIterator()
             
-            let stream = service.downloadVideo(
-                video: videos[index],
-                format: selectedFormatType,
-                resolution: selectedResolution,
-                destinationFolder: destURL
-            )
-            
-            var finalError: String? = nil
-            
-            for await data in stream {
-                if data.isFinished {
-                    finalError = data.error
-                    break
+            while let index = iterator.next() {
+                if activeTasks >= maxConcurrentDownloads {
+                    await group.next()
+                    activeTasks -= 1
                 }
                 
-                // Real-time main actor update from AsyncStream yield
-                if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
-                    self.videos[currentIndex].downloadProgress = data.progress
-                    self.videos[currentIndex].downloadSpeed = data.speed
-                    self.videos[currentIndex].totalSize = data.totalSize
-                    self.videos[currentIndex].downloadEta = data.eta
+                let video = videos[index]
+                activeTasks += 1
+                
+                group.addTask {
+                    let stream = await service.downloadVideo(
+                        video: video,
+                        format: formatType,
+                        resolution: resolution,
+                        destinationFolder: destURL
+                    )
+                    
+                    var finalError: String? = nil
+                    
+                    for await data in stream {
+                        if data.isFinished {
+                            finalError = data.error
+                            break
+                        }
+                        
+                        await MainActor.run {
+                            if let currentIndex = self.videos.firstIndex(where: { $0.id == video.id }) {
+                                self.videos[currentIndex].downloadProgress = data.progress
+                                self.videos[currentIndex].downloadSpeed = data.speed
+                                self.videos[currentIndex].totalSize = data.totalSize
+                                self.videos[currentIndex].downloadEta = data.eta
+                            }
+                        }
+                    }
+                    
+                    await MainActor.run {
+                        if let currentIndex = self.videos.firstIndex(where: { $0.id == video.id }) {
+                            if let errorMsg = finalError {
+                                self.videos[currentIndex].status = .error
+                                self.videos[currentIndex].errorDescription = errorMsg
+                            } else {
+                                self.videos[currentIndex].status = .success
+                                self.videos[currentIndex].downloadProgress = 1.0
+                            }
+                        }
+                    }
                 }
             }
             
-            // Mark as success or error
-            if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
-                if let errorMsg = finalError {
-                    self.videos[currentIndex].status = .error
-                    self.videos[currentIndex].errorDescription = errorMsg
-                } else {
-                    self.videos[currentIndex].status = .success
-                    self.videos[currentIndex].downloadProgress = 1.0
-                }
+            for _ in 0..<activeTasks {
+                await group.next()
             }
+        }
+    }
+    
+    func retryDownload(for id: UUID) {
+        guard let index = videos.firstIndex(where: { $0.id == id }) else { return }
+        videos[index].status = .idle
+        videos[index].errorDescription = nil
+        videos[index].isSelected = true
+        
+        Task {
+            await startDownloadSelectedVideos()
         }
     }
     
