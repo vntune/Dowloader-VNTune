@@ -104,7 +104,7 @@ class YTDLPService {
     }
     
     // 2 & 3. Download Video with AsyncStream yielding progress
-    func downloadVideo(video: VideoItem, format: String, resolution: String, destinationFolder: URL) -> AsyncStream<Double> {
+    func downloadVideo(video: VideoItem, format: String, resolution: String, destinationFolder: URL) -> AsyncStream<DownloadProgressData> {
         AsyncStream { continuation in
             let executableURL = self.executableURL
             

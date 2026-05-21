@@ -236,20 +236,46 @@ struct VideoCellView: View {
                 
                 // 4. Tiến trình tải
                 if video.status != .idle && video.status != .fetching {
-                    HStack {
-                        ProgressView(value: video.downloadProgress)
-                            .progressViewStyle(.linear)
-                            .frame(maxWidth: 300)
-                        
-                        Text("\(Int(video.downloadProgress * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            ProgressView(value: video.downloadProgress)
+                                .progressViewStyle(.linear)
+                                .frame(maxWidth: 300)
                             
-                        Text(statusText)
-                            .font(.caption2.bold())
-                            .foregroundColor(statusColor)
-                            .padding(.leading, 4)
+                            Text("\(Int(video.downloadProgress * 100))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                                
+                            Text(statusText)
+                                .font(.caption2.bold())
+                                .foregroundColor(statusColor)
+                                .padding(.leading, 4)
+                        }
+                        
+                        if video.status == .downloading {
+                            HStack(spacing: 12) {
+                                if !video.totalSize.isEmpty {
+                                    Text("Dung lượng: \(video.totalSize)")
+                                }
+                                if !video.downloadSpeed.isEmpty {
+                                    Text("Tốc độ: \(video.downloadSpeed)")
+                                }
+                                if !video.downloadEta.isEmpty {
+                                    Text("Còn lại: \(video.downloadEta)")
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        } else if video.status == .success {
+                            Button("Mở thư mục") {
+                                if let folder = viewModel.destinationFolder {
+                                    NSWorkspace.shared.open(folder)
+                                }
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
                     }
                     .padding(.top, 2)
                 }

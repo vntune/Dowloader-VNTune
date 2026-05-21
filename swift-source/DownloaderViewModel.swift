@@ -107,10 +107,13 @@ class DownloaderViewModel: ObservableObject {
                 destinationFolder: destURL
             )
             
-            for await progress in stream {
+            for await data in stream {
                 // Real-time main actor update from AsyncStream yield
                 if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
-                    self.videos[currentIndex].downloadProgress = progress
+                    self.videos[currentIndex].downloadProgress = data.progress
+                    self.videos[currentIndex].downloadSpeed = data.speed
+                    self.videos[currentIndex].totalSize = data.totalSize
+                    self.videos[currentIndex].downloadEta = data.eta
                 }
             }
             

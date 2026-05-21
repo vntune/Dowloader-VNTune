@@ -12,6 +12,13 @@ enum VideoStatus: String, Codable, Equatable {
     case error
 }
 
+struct DownloadProgressData: Equatable {
+    var progress: Double
+    var speed: String
+    var totalSize: String
+    var eta: String
+}
+
 struct VideoItem: Identifiable, Codable, Equatable {
     var id: String
     var url: String
@@ -22,6 +29,9 @@ struct VideoItem: Identifiable, Codable, Equatable {
     var likes: Int
     var uploadDate: Date
     var downloadProgress: Double = 0.0 // Value from 0.0 to 1.0
+    var downloadSpeed: String = ""
+    var totalSize: String = ""
+    var downloadEta: String = ""
     var isSelected: Bool = false
     var status: VideoStatus = .idle
     
@@ -36,16 +46,38 @@ struct VideoItem: Identifiable, Codable, Equatable {
 
 // 3. Regex Helper using modern Swift 5.7+ Regex syntax
 struct YTDLPParser {
-    static func parseProgress(from output: String) -> Double? {
-        // Matches e.g., "[download]  45.0% of 50.00MiB"
-        let regex = /\\[download\\]\\s+([0-9]+(?:\\.[0-9]+)?)%/
-        
-        if let match = try? regex.firstMatch(in: output) {
-            if let percent = Double(match.1) {
-                return percent / 100.0 // Map 45.0 to 0.45
-            }
+    static func parseProgress(from output: String) -> DownloadProgressData? {
+        // Progress
+        var progress: Double = 0.0
+        let progressRegex = /\\[download\\]\\s+([0-9\\.]+)%/
+        if let match = try? progressRegex.firstMatch(in: output), let val = Double(match.1) {
+            progress = val / 100.0
+        } else {
+            return nil
         }
-        return nil
+        
+        // Total size
+        var totalSize = ""
+        let sizeRegex = /of\\s+~?\\s*([0-9\\.]+[A-Za-z]+)/
+        if let match = try? sizeRegex.firstMatch(in: output) {
+            totalSize = String(match.1)
+        }
+        
+        // Speed
+        var speed = ""
+        let speedRegex = /at\\s+([0-9\\.]+[A-Za-z]+\\/s)/
+        if let match = try? speedRegex.firstMatch(in: output) {
+            speed = String(match.1)
+        }
+        
+        // ETA
+        var eta = ""
+        let etaRegex = /ETA\\s+([0-9:]+)/
+        if let match = try? etaRegex.firstMatch(in: output) {
+            eta = String(match.1)
+        }
+        
+        return DownloadProgressData(progress: progress, speed: speed, totalSize: totalSize, eta: eta)
     }
 }
 `;
@@ -99,68 +131,74 @@ class YTDLPService {
         process.standardOutput = pipe
         
         activeProcesses.append(process)
-        try process.run()
+        // Đẩy tác vụ chạy lệnh và phân tích JSON nặng sang Background để tránh Đơ UI
+        let items: [VideoItem]? = try? await Task.detached(priority: .userInitiated) {
+            try process.run()
+            
+            guard let data = try? pipe.fileHandleForReading.readToEnd() else {
+                process.terminate()
+                return [VideoItem]()
+            }
+            
+            process.waitUntilExit()
+            
+            let outputString = String(decoding: data, as: UTF8.self)
+            var parsedItems: [VideoItem] = []
+            let decoder = JSONDecoder()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyyMMdd" // yt-dlp upload_date format
+            
+            // Parse JSON Lines
+            let lines = outputString.components(separatedBy: .newlines).filter { !$0.isEmpty }
+            for line in lines {
+                if let lineData = line.data(using: .utf8),
+                   let rawVideo = try? decoder.decode(YTDLPVideoResponse.self, from: lineData) {
+                    
+                    let uploadDate = dateFormatter.date(from: rawVideo.upload_date ?? "") ?? Date()
+                    
+                    let item = VideoItem(
+                        id: rawVideo.id,
+                        url: rawVideo.webpage_url ?? "",
+                        title: rawVideo.title ?? "Unknown Title",
+                        thumbnailURL: rawVideo.thumbnail,
+                        duration: rawVideo.duration ?? 0,
+                        views: rawVideo.view_count ?? 0,
+                        likes: rawVideo.like_count ?? 0,
+                        uploadDate: uploadDate,
+                        status: .idle
+                    )
+                    parsedItems.append(item)
+                }
+            }
+            return parsedItems
+        }.value
         
-        // Wait for EOF using modernized Swift reads
-        guard let data = try? pipe.fileHandleForReading.readToEnd() else {
-            process.terminate()
-            throw YTDLPError.processFailed(-1)
-        }
-        
-        process.waitUntilExit()
         activeProcesses.removeAll { $0 == process }
         
-        if process.terminationStatus != 0 {
-            throw YTDLPError.processFailed(process.terminationStatus)
-        }
-        
-        let outputString = String(decoding: data, as: UTF8.self)
-        var items: [VideoItem] = []
-        let decoder = JSONDecoder()
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd" // yt-dlp upload_date format
-        
-        // Parse JSON Lines
-        let lines = outputString.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        for line in lines {
-            if let lineData = line.data(using: .utf8),
-               let rawVideo = try? decoder.decode(YTDLPVideoResponse.self, from: lineData) {
-                
-                let uploadDate = dateFormatter.date(from: rawVideo.upload_date ?? "") ?? Date()
-                
-                let item = VideoItem(
-                    id: rawVideo.id,
-                    url: rawVideo.webpage_url ?? "",
-                    title: rawVideo.title ?? "Unknown Title",
-                    thumbnailURL: rawVideo.thumbnail,
-                    duration: rawVideo.duration ?? 0,
-                    views: rawVideo.view_count ?? 0,
-                    likes: rawVideo.like_count ?? 0,
-                    uploadDate: uploadDate,
-                    status: .idle
-                )
-                items.append(item)
-            }
-        }
-        
-        return items
+        return items ?? []
     }
     
     // 2 & 3. Download Video with AsyncStream yielding progress
-    func downloadVideo(video: VideoItem, resolution: String, destinationFolder: URL) -> AsyncStream<Double> {
+    func downloadVideo(video: VideoItem, format: String, resolution: String, destinationFolder: URL) -> AsyncStream<DownloadProgressData> {
         AsyncStream { continuation in
-            guard let executableURL = executableURL else {
-                continuation.finish()
-                return
-            }
+            let executableURL = self.executableURL
             
             let process = Process()
             process.executableURL = executableURL
+            
+            var formatArg = ""
+            switch format {
+            case "original": formatArg = "best"
+            case "audio": formatArg = "bestaudio/best"
+            default: formatArg = "bestvideo[height<=\\(resolution)]+bestaudio/best"
+            }
+            
             process.arguments = [
+                "--ffmpeg-location", ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--restrict-filenames",
-                "-f", "bestvideo[height<=\\(resolution)]+bestaudio/best",
+                "-f", formatArg,
                 "-o", "\\(destinationFolder.path)/%(title)s.%(ext)s",
                 video.url
             ]
@@ -228,6 +266,7 @@ class DownloaderViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var urlInput: String = ""
     @Published var selectedResolution: String = "1080" // 720, 1080, 2160
+    @Published var selectedFormatType: String = "original" // original, video, audio
     @Published var destinationFolder: URL?
     
     // Filter and Sort states
@@ -315,14 +354,18 @@ class DownloaderViewModel: ObservableObject {
             
             let stream = service.downloadVideo(
                 video: videos[index],
+                format: selectedFormatType,
                 resolution: selectedResolution,
                 destinationFolder: destURL
             )
             
-            for await progress in stream {
+            for await data in stream {
                 // Real-time main actor update from AsyncStream yield
                 if let currentIndex = self.videos.firstIndex(where: { $0.id == self.videos[index].id }) {
-                    self.videos[currentIndex].downloadProgress = progress
+                    self.videos[currentIndex].downloadProgress = data.progress
+                    self.videos[currentIndex].downloadSpeed = data.speed
+                    self.videos[currentIndex].totalSize = data.totalSize
+                    self.videos[currentIndex].downloadEta = data.eta
                 }
             }
             
@@ -371,14 +414,23 @@ struct MainView: View {
                 }
                 
                 HStack {
-                    Picker("Độ phân giải:", selection: $viewModel.selectedResolution) {
+                    Picker("Định dạng:", selection: $viewModel.selectedFormatType) {
+                        Text("Gốc (Khuyên dùng/Nhanh)").tag("original")
+                        Text("Ghép MP4 (Video+Audio)").tag("video")
+                        Text("Chỉ Âm thanh (Audio)").tag("audio")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 270)
+
+                    Picker("Phân giải:", selection: $viewModel.selectedResolution) {
                         Text("720p").tag("720")
                         Text("1080p").tag("1080")
                         Text("2K").tag("1440")
                         Text("4K").tag("2160")
                     }
                     .pickerStyle(.menu)
-                    .frame(width: 200)
+                    .frame(width: 170)
+                    .disabled(viewModel.selectedFormatType != "video")
                     
                     Spacer()
                     
@@ -540,20 +592,46 @@ struct VideoCellView: View {
                 
                 // 4. Tiến trình tải
                 if video.status != .idle && video.status != .fetching {
-                    HStack {
-                        ProgressView(value: video.downloadProgress)
-                            .progressViewStyle(.linear)
-                            .frame(maxWidth: 300)
-                        
-                        Text("\\(Int(video.downloadProgress * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                            .frame(width: 40, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            ProgressView(value: video.downloadProgress)
+                                .progressViewStyle(.linear)
+                                .frame(maxWidth: 300)
                             
-                        Text(statusText)
-                            .font(.caption2.bold())
-                            .foregroundColor(statusColor)
-                            .padding(.leading, 4)
+                            Text("\\(Int(video.downloadProgress * 100))%")
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                                
+                            Text(statusText)
+                                .font(.caption2.bold())
+                                .foregroundColor(statusColor)
+                                .padding(.leading, 4)
+                        }
+                        
+                        if video.status == .downloading {
+                            HStack(spacing: 12) {
+                                if !video.totalSize.isEmpty {
+                                    Text("Dung lượng: \\(video.totalSize)")
+                                }
+                                if !video.downloadSpeed.isEmpty {
+                                    Text("Tốc độ: \\(video.downloadSpeed)")
+                                }
+                                if !video.downloadEta.isEmpty {
+                                    Text("Còn lại: \\(video.downloadEta)")
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        } else if video.status == .success {
+                            Button("Mở thư mục") {
+                                if let folder = viewModel.destinationFolder {
+                                    NSWorkspace.shared.open(folder)
+                                }
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                        }
                     }
                     .padding(.top, 2)
                 }

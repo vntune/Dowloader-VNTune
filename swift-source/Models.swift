@@ -9,6 +9,13 @@ enum VideoStatus: String, Codable, Equatable {
     case error
 }
 
+struct DownloadProgressData: Equatable {
+    var progress: Double
+    var speed: String
+    var totalSize: String
+    var eta: String
+}
+
 struct VideoItem: Identifiable, Codable, Equatable {
     var id: String
     var url: String
@@ -19,6 +26,9 @@ struct VideoItem: Identifiable, Codable, Equatable {
     var likes: Int
     var uploadDate: Date
     var downloadProgress: Double = 0.0 // Value from 0.0 to 1.0
+    var downloadSpeed: String = ""
+    var totalSize: String = ""
+    var downloadEta: String = ""
     var isSelected: Bool = false
     var status: VideoStatus = .idle
     
@@ -33,15 +43,37 @@ struct VideoItem: Identifiable, Codable, Equatable {
 
 // 3. Regex Helper using modern Swift 5.7+ Regex syntax
 struct YTDLPParser {
-    static func parseProgress(from output: String) -> Double? {
-        // Matches e.g., "[download]  45.0% of 50.00MiB"
-        let regex = /\[download\]\s+([0-9]+(?:\.[0-9]+)?)%/
-        
-        if let match = try? regex.firstMatch(in: output) {
-            if let percent = Double(match.1) {
-                return percent / 100.0 // Map 45.0 to 0.45
-            }
+    static func parseProgress(from output: String) -> DownloadProgressData? {
+        // Progress
+        var progress: Double = 0.0
+        let progressRegex = /\[download\]\s+([0-9\.]+)%/
+        if let match = try? progressRegex.firstMatch(in: output), let val = Double(match.1) {
+            progress = val / 100.0
+        } else {
+            return nil
         }
-        return nil
+        
+        // Total size
+        var totalSize = ""
+        let sizeRegex = /of\s+~?\s*([0-9\.]+[A-Za-z]+)/
+        if let match = try? sizeRegex.firstMatch(in: output) {
+            totalSize = String(match.1)
+        }
+        
+        // Speed
+        var speed = ""
+        let speedRegex = /at\s+([0-9\.]+[A-Za-z]+\/s)/
+        if let match = try? speedRegex.firstMatch(in: output) {
+            speed = String(match.1)
+        }
+        
+        // ETA
+        var eta = ""
+        let etaRegex = /ETA\s+([0-9:]+)/
+        if let match = try? etaRegex.firstMatch(in: output) {
+            eta = String(match.1)
+        }
+        
+        return DownloadProgressData(progress: progress, speed: speed, totalSize: totalSize, eta: eta)
     }
 }
