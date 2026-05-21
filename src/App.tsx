@@ -333,6 +333,17 @@ class DownloaderViewModel: ObservableObject {
             }
         }
     }
+    
+    // 6. Cancel Downloads
+    func cancelDownloads() {
+        service.cancelAllProcesses()
+        
+        // Reset state for currently downloading videos
+        for index in videos.indices where videos[index].status == .downloading {
+            videos[index].status = .idle
+            videos[index].downloadProgress = 0.0
+        }
+    }
 }
 `;
 
@@ -454,7 +465,7 @@ struct MainView: View {
                 Spacer()
                 
                 Button("Hủy") {
-                    // Cần expose hàm cancelAllProcesses ra DownloaderViewModel nếu cần
+                    viewModel.cancelDownloads()
                 }
                 .keyboardShortcut(.cancelAction)
                 
@@ -572,17 +583,34 @@ struct VideoCellView: View {
 }
 `
 
-type Tab = 'models' | 'service' | 'viewmodel' | 'views';
+const appEntryCode = `import SwiftUI
+
+@main
+struct VideoDownloaderApp: App {
+    var body: some Scene {
+        WindowGroup {
+            MainView()
+        }
+        .windowStyle(.titleBar) // Chuẩn style cửa sổ macOS
+        .commands {
+            SidebarCommands()
+        }
+    }
+}
+`
+
+type Tab = 'models' | 'service' | 'viewmodel' | 'views' | 'app';
 
 export default function App() {
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('views');
+  const [activeTab, setActiveTab] = useState<Tab>('app');
 
   const activeCode = 
     activeTab === 'models' ? modelsCode : 
     activeTab === 'service' ? serviceCode : 
     activeTab === 'viewmodel' ? viewModelCode :
-    viewsCode;
+    activeTab === 'views' ? viewsCode :
+    appEntryCode;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(activeCode);
@@ -650,6 +678,17 @@ export default function App() {
           >
             <FileCode2 className="w-4 h-4" />
             <span>MainView.swift</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('app')}
+            className={`flex items-center space-x-2 px-4 py-2 border-b-2 transition-colors ${
+              activeTab === 'app' 
+                ? 'border-blue-500 text-white' 
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <FileCode2 className="w-4 h-4" />
+            <span>App.swift</span>
           </button>
         </div>
 
