@@ -3,9 +3,46 @@ import AppKit
 
 struct MainView: View {
     @StateObject private var viewModel = DownloaderViewModel()
+    @StateObject private var dependencyManager = DependencyManager()
     @State private var selectAll: Bool = false
     
     var body: some View {
+        Group {
+            if dependencyManager.isReady {
+                mainContent
+            } else {
+                loadingView
+            }
+        }
+        .frame(minWidth: 800, minHeight: 600)
+        .onAppear {
+            Task {
+                await dependencyManager.setupDependencies()
+            }
+        }
+    }
+    
+    var loadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView(value: dependencyManager.progress)
+                .progressViewStyle(.linear)
+                .frame(width: 300)
+            
+            Text(dependencyManager.statusMessage)
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            if dependencyManager.statusMessage.contains("Lỗi") {
+                Button("Thử lại") {
+                    Task { await dependencyManager.setupDependencies() }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+    }
+    
+    var mainContent: some View {
         VStack(spacing: 0) {
             // 1. Header / Input Section
             VStack(spacing: 16) {
@@ -130,7 +167,6 @@ struct MainView: View {
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(minWidth: 800, minHeight: 600)
     }
     
     // macOS NSOpenPanel

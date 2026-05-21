@@ -23,20 +23,28 @@ private struct YTDLPVideoResponse: Codable {
 class YTDLPService {
     private var activeProcesses: [Process] = []
     
-    // Path to the bundled yt-dlp executable
-    private var executableURL: URL? {
-        Bundle.main.url(forResource: "yt-dlp_macos", withExtension: nil)
+    // Path to the downloaded yt-dlp executable in Application Support
+    private var executableURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+        return supportDirectory.appendingPathComponent("yt-dlp_macos")
+    }
+    
+    // Path to ffmpeg folder
+    private var ffmpegPath: String {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+        return supportDirectory.path
     }
     
     // 1. Fetch Metadata (JSON Lines)
     func fetchMetadata(url: String, startIndex: Int, endIndex: Int) async throws -> [VideoItem] {
-        guard let executableURL = executableURL else {
-            throw YTDLPError.binaryNotFound
-        }
+        let executableURL = self.executableURL
         
         let process = Process()
         process.executableURL = executableURL
         process.arguments = [
+            "--ffmpeg-location", ffmpegPath,
             "--dump-json",
             "--playlist-start", "\(startIndex)",
             "--playlist-end", "\(endIndex)",
@@ -97,14 +105,12 @@ class YTDLPService {
     // 2 & 3. Download Video with AsyncStream yielding progress
     func downloadVideo(video: VideoItem, resolution: String, destinationFolder: URL) -> AsyncStream<Double> {
         AsyncStream { continuation in
-            guard let executableURL = executableURL else {
-                continuation.finish()
-                return
-            }
+            let executableURL = self.executableURL
             
             let process = Process()
             process.executableURL = executableURL
             process.arguments = [
+                "--ffmpeg-location", ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--restrict-filenames",
