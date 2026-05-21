@@ -173,7 +173,7 @@ class DownloaderViewModel: ObservableObject {
         }
     }
     
-    func retryDownload(for id: UUID) {
+    func retryDownload(for id: String) {
         guard let index = videos.firstIndex(where: { $0.id == id }) else { return }
         videos[index].status = .idle
         videos[index].errorDescription = nil
