@@ -72,12 +72,13 @@ struct MainView: View {
                 }
                 
                 HStack {
-                    Picker("Loại:", selection: $viewModel.downloadType) {
+                    Picker("", selection: $viewModel.downloadType) {
                         Text("Video").tag("video")
                         Text("Audio").tag("audio")
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 150)
+                    .labelsHidden()
+                    .frame(width: 140)
                     
                     if viewModel.downloadType == "video" {
                         Picker("Định dạng:", selection: $viewModel.videoFormat) {
@@ -88,7 +89,6 @@ struct MainView: View {
                             Text("avi").tag("avi")
                         }
                         .pickerStyle(.menu)
-                        .frame(width: 120)
 
                         Picker("Phân giải:", selection: $viewModel.selectedResolution) {
                             Text("Cao nhất").tag("best")
@@ -98,7 +98,6 @@ struct MainView: View {
                             Text("4K").tag("2160")
                         }
                         .pickerStyle(.menu)
-                        .frame(width: 170)
                     } else {
                         Picker("Định dạng:", selection: $viewModel.audioFormat) {
                             Text("mp3").tag("mp3")
@@ -109,7 +108,6 @@ struct MainView: View {
                             Text("flac").tag("flac")
                         }
                         .pickerStyle(.menu)
-                        .frame(width: 120)
                     }
                     
                     Spacer()
@@ -195,6 +193,10 @@ struct MainView: View {
                     .foregroundColor(.secondary)
                 
                 Spacer()
+                
+                Text("Đã chọn \(viewModel.videos.filter { $0.isSelected }.count) / \(viewModel.videos.count) video")
+                    .foregroundColor(.secondary)
+                    .padding(.trailing, 10)
                 
                 Button("Hủy") {
                     viewModel.cancelDownloads()
