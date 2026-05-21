@@ -348,9 +348,11 @@ struct VideoCellView: View {
 struct SettingsView: View {
     @AppStorage("maxConcurrentDownloads") var maxConcurrentDownloads: Int = 3
     @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
+    @AppStorage("fileNameStrategy") var fileNameStrategy: Int = 1
     
     @State private var draftMaxConcurrentDownloads: Int = 3
     @State private var draftFetchPageSize: Int = 50
+    @State private var draftFileNameStrategy: Int = 1
     
     @Environment(\.dismiss) var dismiss
     
@@ -377,6 +379,12 @@ struct SettingsView: View {
                     }
                 }
                 
+                Picker("Cách đặt tên file tải về:", selection: $draftFileNameStrategy) {
+                    Text("1. Giữ nguyên tên gốc").tag(0)
+                    Text("2. Loại bỏ ký tự đặc biệt & thay khoảng trắng bằng \"_\"").tag(1)
+                }
+                .padding(.top, 10)
+                
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Cài đặt khác")
                         .font(.headline)
@@ -399,6 +407,7 @@ struct SettingsView: View {
                 Button("Lưu") {
                     maxConcurrentDownloads = draftMaxConcurrentDownloads
                     fetchPageSize = draftFetchPageSize
+                    fileNameStrategy = draftFileNameStrategy
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -406,10 +415,11 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 480, height: 380)
+        .frame(width: 480, height: 420)
         .onAppear {
             draftMaxConcurrentDownloads = maxConcurrentDownloads
             draftFetchPageSize = fetchPageSize
+            draftFileNameStrategy = fileNameStrategy
         }
     }
 }

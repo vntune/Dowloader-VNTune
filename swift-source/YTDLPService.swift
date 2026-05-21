@@ -122,7 +122,6 @@ class YTDLPService {
                 "--ffmpeg-location", ffmpegPath,
                 "--newline",
                 "--no-colors",
-                "--restrict-filenames",
                 "--retries", "infinite",
                 "--fragment-retries", "infinite",
                 "-f", formatArg,
