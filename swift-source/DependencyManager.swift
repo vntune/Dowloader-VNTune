@@ -11,16 +11,22 @@ class DependencyManager: ObservableObject {
     @Published var needsInstall: Bool = true
     @Published var isInstalling: Bool = false
     
-    let supportDirectory: URL
-    let ytDlpURL: URL
-    let ffmpegURL: URL
+    @Published var supportDirectory: URL
+    @Published var ytDlpURL: URL
+    @Published var ffmpegURL: URL
     
     init() {
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+        supportDirectory = YTDLPService.currentSupportDirectory()
         ytDlpURL = supportDirectory.appendingPathComponent("yt-dlp_macos")
         ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
+    }
+    
+    func updatePaths() {
+        supportDirectory = YTDLPService.currentSupportDirectory()
+        ytDlpURL = supportDirectory.appendingPathComponent("yt-dlp_macos")
+        ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
+        checkDependencies()
+        showPaths()
     }
     
     func checkDependencies() {
@@ -29,7 +35,7 @@ class DependencyManager: ObservableObject {
         let ffmpegExists = fileManager.fileExists(atPath: ffmpegURL.path)
         
         needsInstall = !ytDlpExists || !ffmpegExists
-        isReady = ytDlpExists
+        isReady = ytDlpExists && ffmpegExists
     }
     
     func updateOrInstallDependencies() async {

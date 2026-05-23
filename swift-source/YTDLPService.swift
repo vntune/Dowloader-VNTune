@@ -23,18 +23,22 @@ private struct YTDLPVideoResponse: Codable {
 class YTDLPService {
     private var activeProcesses: [Process] = []
     
+    static func currentSupportDirectory() -> URL {
+        if let customPath = UserDefaults.standard.string(forKey: "customInstallPath"), !customPath.isEmpty {
+            return URL(fileURLWithPath: customPath)
+        }
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+    }
+    
     // Path to the downloaded yt-dlp executable in Application Support
     private var executableURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
-        return supportDirectory.appendingPathComponent("yt-dlp_macos")
+        return Self.currentSupportDirectory().appendingPathComponent("yt-dlp_macos")
     }
     
     // Path to ffmpeg folder
     private var ffmpegPath: String {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
-        return supportDirectory.path
+        return Self.currentSupportDirectory().path
     }
     
     // 1. Fetch Metadata (JSON Lines)
@@ -112,7 +116,7 @@ class YTDLPService {
             process.executableURL = executableURL
             
             var args = [
-                "--ffmpeg-location", ffmpegPath,
+                "--ffmpeg-location", self.ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--retries", "infinite",

@@ -420,6 +420,43 @@ struct SettingsView: View {
                         .padding(.top, 10)
                     
                     VStack(alignment: .leading, spacing: 4) {
+                        Text("Thư mục cài đặt công cụ:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        HStack {
+                            Text(dependencyManager.supportDirectory.path)
+                                .font(.caption2.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            
+                            Spacer()
+                            
+                            Button("Thay đổi") {
+                                let panel = NSOpenPanel()
+                                panel.canChooseFiles = false
+                                panel.canChooseDirectories = true
+                                panel.allowsMultipleSelection = false
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    UserDefaults.standard.set(url.path, forKey: "customInstallPath")
+                                    dependencyManager.updatePaths()
+                                }
+                            }
+                            
+                            Button("Mở") {
+                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dependencyManager.supportDirectory.path)
+                            }
+                            
+                            Button(action: {
+                                dependencyManager.updatePaths()
+                            }) {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .help("Làm mới trạng thái thư mục")
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("yt-dlp:")
                             .font(.caption)
                             .foregroundColor(.secondary)

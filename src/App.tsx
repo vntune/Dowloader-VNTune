@@ -137,20 +137,32 @@ private struct YTDLPVideoResponse: Codable {
 class YTDLPService {
     private var activeProcesses: [Process] = []
     
-    // Path to the bundled yt-dlp executable
-    private var executableURL: URL? {
-        Bundle.main.url(forResource: "yt-dlp_macos", withExtension: nil)
+    static func currentSupportDirectory() -> URL {
+        if let customPath = UserDefaults.standard.string(forKey: "customInstallPath"), !customPath.isEmpty {
+            return URL(fileURLWithPath: customPath)
+        }
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+    }
+    
+    // Path to the downloaded yt-dlp executable in Application Support
+    private var executableURL: URL {
+        return Self.currentSupportDirectory().appendingPathComponent("yt-dlp_macos")
+    }
+    
+    // Path to ffmpeg folder
+    private var ffmpegPath: String {
+        return Self.currentSupportDirectory().path
     }
     
     // 1. Fetch Metadata (JSON Lines)
     func fetchMetadata(url: String, startIndex: Int, endIndex: Int) async throws -> [VideoItem] {
-        guard let executableURL = executableURL else {
-            throw YTDLPError.binaryNotFound
-        }
+        let executableURL = self.executableURL
         
         let process = Process()
         process.executableURL = executableURL
         process.arguments = [
+            "--ffmpeg-location", ffmpegPath,
             "--dump-json",
             "--playlist-start", "\\(startIndex)",
             "--playlist-end", "\\(endIndex)",
@@ -217,7 +229,7 @@ class YTDLPService {
             process.executableURL = executableURL
             
             var args = [
-                "--ffmpeg-location", ffmpegPath,
+                "--ffmpeg-location", self.ffmpegPath,
                 "--newline",
                 "--no-colors",
                 "--retries", "infinite",
@@ -529,16 +541,22 @@ class DependencyManager: ObservableObject {
     @Published var needsInstall: Bool = true
     @Published var isInstalling: Bool = false
     
-    let supportDirectory: URL
-    let ytDlpURL: URL
-    let ffmpegURL: URL
+    @Published var supportDirectory: URL
+    @Published var ytDlpURL: URL
+    @Published var ffmpegURL: URL
     
     init() {
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        supportDirectory = appSupport.appendingPathComponent("VideoDownloaderVN", isDirectory: true)
+        supportDirectory = YTDLPService.currentSupportDirectory()
         ytDlpURL = supportDirectory.appendingPathComponent("yt-dlp_macos")
         ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
+    }
+    
+    func updatePaths() {
+        supportDirectory = YTDLPService.currentSupportDirectory()
+        ytDlpURL = supportDirectory.appendingPathComponent("yt-dlp_macos")
+        ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
+        checkDependencies()
+        showPaths()
     }
     
     func checkDependencies() {
@@ -547,7 +565,7 @@ class DependencyManager: ObservableObject {
         let ffmpegExists = fileManager.fileExists(atPath: ffmpegURL.path)
         
         needsInstall = !ytDlpExists || !ffmpegExists
-        isReady = ytDlpExists
+        isReady = ytDlpExists && ffmpegExists
     }
     
     func updateOrInstallDependencies() async {
@@ -1077,6 +1095,43 @@ struct SettingsView: View {
                         .font(.headline)
                         .foregroundColor(.primary)
                         .padding(.top, 10)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Thư mục cài đặt công cụ:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        HStack {
+                            Text(dependencyManager.supportDirectory.path)
+                                .font(.caption2.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            
+                            Spacer()
+                            
+                            Button("Thay đổi") {
+                                let panel = NSOpenPanel()
+                                panel.canChooseFiles = false
+                                panel.canChooseDirectories = true
+                                panel.allowsMultipleSelection = false
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    UserDefaults.standard.set(url.path, forKey: "customInstallPath")
+                                    dependencyManager.updatePaths()
+                                }
+                            }
+                            
+                            Button("Mở") {
+                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dependencyManager.supportDirectory.path)
+                            }
+                            
+                            Button(action: {
+                                dependencyManager.updatePaths()
+                            }) {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .help("Làm mới trạng thái thư mục")
+                        }
+                    }
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text("yt-dlp:")
