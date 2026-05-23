@@ -522,8 +522,12 @@ import Combine
 @MainActor
 class DependencyManager: ObservableObject {
     @Published var isReady = false
-    @Published var statusMessage = "Khởi tạo môi trường..."
+    @Published var statusMessage = ""
     @Published var progress: Double = 0.0 // Giá trị từ 0 đến 1
+    @Published var ytDlpPathDisplay: String = "Chưa cài đặt"
+    @Published var ffmpegPathDisplay: String = "Chưa cài đặt"
+    @Published var needsInstall: Bool = true
+    @Published var isInstalling: Bool = false
     
     let supportDirectory: URL
     let ytDlpURL: URL
@@ -537,9 +541,18 @@ class DependencyManager: ObservableObject {
         ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
     }
     
-    func setupDependencies() async {
+    func checkDependencies() {
         let fileManager = FileManager.default
-        isReady = false
+        let ytDlpExists = fileManager.fileExists(atPath: ytDlpURL.path)
+        let ffmpegExists = fileManager.fileExists(atPath: ffmpegURL.path)
+        
+        needsInstall = !ytDlpExists || !ffmpegExists
+        isReady = ytDlpExists
+    }
+    
+    func updateOrInstallDependencies() async {
+        let fileManager = FileManager.default
+        isInstalling = true
         progress = 0.0
         
         do {
@@ -551,10 +564,8 @@ class DependencyManager: ObservableObject {
             if !fileManager.fileExists(atPath: ytDlpURL.path) {
                 statusMessage = "Đang tải yt-dlp (Core downloader)..."
                 try await downloadFile(from: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos", to: ytDlpURL)
+                try await setExecutable(url: ytDlpURL)
             }
-            
-            statusMessage = "Đang cấp quyền thực thi cho yt-dlp..."
-            try await setExecutable(url: ytDlpURL)
             
             statusMessage = "Đang kiểm tra và cập nhật yt-dlp..."
             _ = try? await runCommand(executable: ytDlpURL, arguments: ["-U"])
@@ -572,12 +583,30 @@ class DependencyManager: ObservableObject {
                 try? fileManager.removeItem(at: zipURL)
             }
             
-            statusMessage = "Cài đặt thành công! Đang khởi động..."
-            try await Task.sleep(nanoseconds: 500_000_000)
+            statusMessage = "Hoàn tất cập nhật!"
+            
+            // Update display paths after successful installation
+            ytDlpPathDisplay = ytDlpURL.path
+            ffmpegPathDisplay = ffmpegURL.path
+            needsInstall = false
             isReady = true
+            
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            statusMessage = ""
         } catch {
             statusMessage = "Lỗi cài đặt: \\(error.localizedDescription)"
         }
+        
+        isInstalling = false
+    }
+    
+    func showPaths() {
+        let fileManager = FileManager.default
+        let ytDlpExists = fileManager.fileExists(atPath: ytDlpURL.path)
+        let ffmpegExists = fileManager.fileExists(atPath: ffmpegURL.path)
+        
+        ytDlpPathDisplay = ytDlpExists ? ytDlpURL.path : "Chưa cài đặt"
+        ffmpegPathDisplay = ffmpegExists ? ffmpegURL.path : "Chưa cài đặt"
     }
     
     private func downloadFile(from urlString: String, to destination: URL) async throws {
@@ -585,7 +614,6 @@ class DependencyManager: ObservableObject {
         
         self.progress = 0.0
         
-        // Sử dụng download(from:) thay vì URLSession.bytes để tránh vòng lặp từng byte vốn gây đơ UI nghiêm trọng.
         let (tempURL, response) = try await URLSession.shared.download(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse, 
@@ -639,19 +667,11 @@ struct MainView: View {
     @State private var showingSettings = false
     
     var body: some View {
-        Group {
-            if dependencyManager.isReady {
-                mainContent
-            } else {
-                loadingView
+        mainContent
+            .frame(minWidth: 800, minHeight: 600)
+            .onAppear {
+                dependencyManager.checkDependencies()
             }
-        }
-        .frame(minWidth: 800, minHeight: 600)
-        .onAppear {
-            Task {
-                await dependencyManager.setupDependencies()
-            }
-        }
     }
     
     var loadingView: some View {
@@ -693,7 +713,7 @@ struct MainView: View {
                         Task { await viewModel.fetchVideos(url: viewModel.urlInput) }
                     }
                     .controlSize(.large)
-                    .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading)
+                    .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading || !dependencyManager.isReady)
                     
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape")
@@ -839,13 +859,14 @@ struct MainView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(viewModel.destinationFolder == nil || !viewModel.videos.contains { $0.isSelected })
+                .disabled(viewModel.destinationFolder == nil || !viewModel.videos.contains { $0.isSelected } || !dependencyManager.isReady)
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+                .environmentObject(dependencyManager)
         }
     }
     
@@ -1001,6 +1022,7 @@ struct VideoCellView: View {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var dependencyManager: DependencyManager
     @AppStorage("maxConcurrentDownloads") var maxConcurrentDownloads: Int = 3
     @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
     @AppStorage("fileNameStrategy") var fileNameStrategy: Int = 1
@@ -1050,15 +1072,53 @@ struct SettingsView: View {
                     }
                 }
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Cài đặt khác")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Môi trường thực thi")
                         .font(.headline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.primary)
+                        .padding(.top, 10)
                     
-                    Toggle("Giới hạn băng thông (Sắp ra mắt)", isOn: .constant(false))
-                        .disabled(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("yt-dlp:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(dependencyManager.ytDlpPathDisplay)
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("ffmpeg:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(dependencyManager.ffmpegPathDisplay)
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    
+                    HStack {
+                        Button(dependencyManager.needsInstall ? "Tải về bộ cài" : "Kiểm tra cập nhật") {
+                            Task {
+                                await dependencyManager.updateOrInstallDependencies()
+                            }
+                        }
+                        .disabled(dependencyManager.isInstalling)
+                        
+                        if dependencyManager.isInstalling {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.leading, 8)
+                            Text(dependencyManager.statusMessage)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
-                .padding(.top, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding()
             
@@ -1081,12 +1141,13 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 480, height: 460)
+        .frame(width: 520, height: 600)
         .onAppear {
             draftMaxConcurrentDownloads = maxConcurrentDownloads
             draftFetchPageSize = fetchPageSize
             draftFileNameStrategy = fileNameStrategy
             draftMaxFileNameLength = maxFileNameLength
+            dependencyManager.showPaths()
         }
     }
 }

@@ -8,19 +8,11 @@ struct MainView: View {
     @State private var showingSettings = false
     
     var body: some View {
-        Group {
-            if dependencyManager.isReady {
-                mainContent
-            } else {
-                loadingView
+        mainContent
+            .frame(minWidth: 800, minHeight: 600)
+            .onAppear {
+                dependencyManager.checkDependencies()
             }
-        }
-        .frame(minWidth: 800, minHeight: 600)
-        .onAppear {
-            Task {
-                await dependencyManager.setupDependencies()
-            }
-        }
     }
     
     var loadingView: some View {
@@ -62,7 +54,7 @@ struct MainView: View {
                         Task { await viewModel.fetchVideos(url: viewModel.urlInput) }
                     }
                     .controlSize(.large)
-                    .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading)
+                    .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading || !dependencyManager.isReady)
                     
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape")
@@ -208,13 +200,14 @@ struct MainView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(viewModel.destinationFolder == nil || !viewModel.videos.contains { $0.isSelected })
+                .disabled(viewModel.destinationFolder == nil || !viewModel.videos.contains { $0.isSelected } || !dependencyManager.isReady)
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+                .environmentObject(dependencyManager)
         }
     }
     
@@ -370,6 +363,7 @@ struct VideoCellView: View {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var dependencyManager: DependencyManager
     @AppStorage("maxConcurrentDownloads") var maxConcurrentDownloads: Int = 3
     @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
     @AppStorage("fileNameStrategy") var fileNameStrategy: Int = 1
@@ -419,15 +413,53 @@ struct SettingsView: View {
                     }
                 }
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Cài đặt khác")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Môi trường thực thi")
                         .font(.headline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.primary)
+                        .padding(.top, 10)
                     
-                    Toggle("Giới hạn băng thông (Sắp ra mắt)", isOn: .constant(false))
-                        .disabled(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("yt-dlp:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(dependencyManager.ytDlpPathDisplay)
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("ffmpeg:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(dependencyManager.ffmpegPathDisplay)
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    
+                    HStack {
+                        Button(dependencyManager.needsInstall ? "Tải về bộ cài" : "Kiểm tra cập nhật") {
+                            Task {
+                                await dependencyManager.updateOrInstallDependencies()
+                            }
+                        }
+                        .disabled(dependencyManager.isInstalling)
+                        
+                        if dependencyManager.isInstalling {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.leading, 8)
+                            Text(dependencyManager.statusMessage)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
-                .padding(.top, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding()
             
@@ -450,12 +482,13 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 480, height: 460)
+        .frame(width: 520, height: 600)
         .onAppear {
             draftMaxConcurrentDownloads = maxConcurrentDownloads
             draftFetchPageSize = fetchPageSize
             draftFileNameStrategy = fileNameStrategy
             draftMaxFileNameLength = maxFileNameLength
+            dependencyManager.showPaths()
         }
     }
 }

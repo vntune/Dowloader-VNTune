@@ -4,8 +4,12 @@ import Combine
 @MainActor
 class DependencyManager: ObservableObject {
     @Published var isReady = false
-    @Published var statusMessage = "Khởi tạo môi trường..."
+    @Published var statusMessage = ""
     @Published var progress: Double = 0.0 // Giá trị từ 0 đến 1
+    @Published var ytDlpPathDisplay: String = "Chưa cài đặt"
+    @Published var ffmpegPathDisplay: String = "Chưa cài đặt"
+    @Published var needsInstall: Bool = true
+    @Published var isInstalling: Bool = false
     
     let supportDirectory: URL
     let ytDlpURL: URL
@@ -19,9 +23,18 @@ class DependencyManager: ObservableObject {
         ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
     }
     
-    func setupDependencies() async {
+    func checkDependencies() {
         let fileManager = FileManager.default
-        isReady = false
+        let ytDlpExists = fileManager.fileExists(atPath: ytDlpURL.path)
+        let ffmpegExists = fileManager.fileExists(atPath: ffmpegURL.path)
+        
+        needsInstall = !ytDlpExists || !ffmpegExists
+        isReady = ytDlpExists
+    }
+    
+    func updateOrInstallDependencies() async {
+        let fileManager = FileManager.default
+        isInstalling = true
         progress = 0.0
         
         do {
@@ -33,10 +46,8 @@ class DependencyManager: ObservableObject {
             if !fileManager.fileExists(atPath: ytDlpURL.path) {
                 statusMessage = "Đang tải yt-dlp (Core downloader)..."
                 try await downloadFile(from: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos", to: ytDlpURL)
+                try await setExecutable(url: ytDlpURL)
             }
-            
-            statusMessage = "Đang cấp quyền thực thi cho yt-dlp..."
-            try await setExecutable(url: ytDlpURL)
             
             statusMessage = "Đang kiểm tra và cập nhật yt-dlp..."
             _ = try? await runCommand(executable: ytDlpURL, arguments: ["-U"])
@@ -54,12 +65,30 @@ class DependencyManager: ObservableObject {
                 try? fileManager.removeItem(at: zipURL)
             }
             
-            statusMessage = "Cài đặt thành công! Đang khởi động..."
-            try await Task.sleep(nanoseconds: 500_000_000)
+            statusMessage = "Hoàn tất cập nhật!"
+            
+            // Update display paths after successful installation
+            ytDlpPathDisplay = ytDlpURL.path
+            ffmpegPathDisplay = ffmpegURL.path
+            needsInstall = false
             isReady = true
+            
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            statusMessage = ""
         } catch {
             statusMessage = "Lỗi cài đặt: \(error.localizedDescription)"
         }
+        
+        isInstalling = false
+    }
+    
+    func showPaths() {
+        let fileManager = FileManager.default
+        let ytDlpExists = fileManager.fileExists(atPath: ytDlpURL.path)
+        let ffmpegExists = fileManager.fileExists(atPath: ffmpegURL.path)
+        
+        ytDlpPathDisplay = ytDlpExists ? ytDlpURL.path : "Chưa cài đặt"
+        ffmpegPathDisplay = ffmpegExists ? ffmpegURL.path : "Chưa cài đặt"
     }
     
     private func downloadFile(from urlString: String, to destination: URL) async throws {
@@ -67,7 +96,6 @@ class DependencyManager: ObservableObject {
         
         self.progress = 0.0
         
-        // Sử dụng download(from:) thay vì URLSession.bytes để tránh vòng lặp từng byte vốn gây đơ UI nghiêm trọng.
         let (tempURL, response) = try await URLSession.shared.download(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse, 
