@@ -22,6 +22,7 @@ private struct YTDLPVideoResponse: Codable {
 @MainActor
 class YTDLPService {
     private var activeProcesses: [Process] = []
+    private var videoProcessMap: [String: Process] = [:]
     private var fetchProcess: Process?
     
     static func currentSupportDirectory() -> URL {
@@ -154,6 +155,7 @@ class YTDLPService {
             
             Task { @MainActor in
                 self.activeProcesses.append(process)
+                self.videoProcessMap[video.id] = process
             }
             
             let fileHandle = pipe.fileHandleForReading
@@ -184,6 +186,7 @@ class YTDLPService {
                 errHandle.readabilityHandler = nil
                 Task { @MainActor [weak self] in
                     self?.activeProcesses.removeAll { $0 == p }
+                    self?.videoProcessMap.removeValue(forKey: video.id)
                 }
                 
                 if p.terminationStatus == 0 {
@@ -203,7 +206,30 @@ class YTDLPService {
         }
     }
     
-    // 4. Cancel all running processes
+    // 4. Pausing, Resuming, Canceling individual videos
+    func pauseDownload(videoId: String) {
+        if let process = videoProcessMap[videoId], process.isRunning {
+            process.suspend()
+        }
+    }
+    
+    func resumeDownload(videoId: String) {
+        if let process = videoProcessMap[videoId], process.isRunning {
+            process.resume()
+        }
+    }
+    
+    func cancelDownload(videoId: String) {
+        if let process = videoProcessMap[videoId] {
+            if process.isRunning {
+                process.terminate()
+            }
+            activeProcesses.removeAll { $0 == process }
+            videoProcessMap.removeValue(forKey: videoId)
+        }
+    }
+    
+    // 5. Cancel all running processes
     func cancelAllDownloads() {
         for process in activeProcesses where process.isRunning {
             if process != fetchProcess {
@@ -211,6 +237,7 @@ class YTDLPService {
             }
         }
         activeProcesses.removeAll { $0 != fetchProcess }
+        videoProcessMap.removeAll()
     }
     
     func cancelFetch() {

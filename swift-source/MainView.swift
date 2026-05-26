@@ -310,21 +310,51 @@ struct VideoCellView: View {
                                 .padding(.leading, 4)
                         }
                         
-                        if video.status == .downloading {
-                            HStack(spacing: 12) {
-                                if !video.totalSize.isEmpty {
-                                    Text("Dung lượng: \(video.totalSize)")
+                            if video.status == .downloading || video.status == .paused || video.status == .pending {
+                                HStack(spacing: 12) {
+                                    if video.status == .downloading {
+                                        Button {
+                                            viewModel.pauseVideo(video.id)
+                                        } label: {
+                                            Label("Tạm dừng", systemImage: "pause.fill")
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.orange)
+                                    } else if video.status == .paused {
+                                        Button {
+                                            viewModel.resumeVideo(video.id)
+                                        } label: {
+                                            Label("Tiếp tục", systemImage: "play.fill")
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.green)
+                                    }
+                                    
+                                    Button {
+                                        viewModel.cancelVideo(video.id)
+                                    } label: {
+                                        Label("Huỷ", systemImage: "stop.fill")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundColor(.red)
+                                    
+                                    if video.status == .downloading {
+                                        if !video.totalSize.isEmpty {
+                                            Text("• \(video.totalSize)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if !video.downloadSpeed.isEmpty {
+                                            Text("• \(video.downloadSpeed)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if !video.downloadEta.isEmpty {
+                                            Text("• ETA: \(video.downloadEta)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
                                 }
-                                if !video.downloadSpeed.isEmpty {
-                                    Text("Tốc độ: \(video.downloadSpeed)")
-                                }
-                                if !video.downloadEta.isEmpty {
-                                    Text("Còn lại: \(video.downloadEta)")
-                                }
-                            }
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        } else if video.status == .success {
+                                .font(.caption2)
+                            } else if video.status == .success {
                             Button("Mở thư mục") {
                                 if let folder = viewModel.destinationFolder {
                                     NSWorkspace.shared.open(folder)
@@ -349,6 +379,15 @@ struct VideoCellView: View {
                                 .font(.caption2)
                                 .foregroundColor(.blue)
                             }
+                        } else if video.status == .cancelled {
+                            Button {
+                                viewModel.retryDownload(for: video.id)
+                            } label: {
+                                Label("Tải lại", systemImage: "arrow.clockwise")
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption2)
+                            .foregroundColor(.blue)
                         }
                     }
                     .padding(.top, 2)
@@ -361,18 +400,24 @@ struct VideoCellView: View {
     
     private var statusText: String {
         switch video.status {
+        case .pending: return "Chờ tải"
         case .downloading: return "Đang tải"
-        case .success: return "Hoàn tất"
+        case .paused: return "Tạm dừng"
+        case .success: return "Đã tải"
         case .error: return "Lỗi"
+        case .cancelled: return "Đã huỷ"
         default: return ""
         }
     }
     
     private var statusColor: Color {
         switch video.status {
+        case .pending: return .orange
         case .downloading: return .blue
+        case .paused: return .orange
         case .success: return .green
         case .error: return .red
+        case .cancelled: return .gray
         default: return .clear
         }
     }

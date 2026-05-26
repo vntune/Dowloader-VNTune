@@ -6,10 +6,13 @@ const modelsCode = `import Foundation
 // 1. Data Models
 enum VideoStatus: String, Codable, Equatable {
     case idle
+    case pending       // queued
     case fetching
     case downloading
+    case paused
     case success
     case error
+    case cancelled
 }
 
 struct DownloadProgressData: Equatable {
@@ -136,6 +139,7 @@ private struct YTDLPVideoResponse: Codable {
 @MainActor
 class YTDLPService {
     private var activeProcesses: [Process] = []
+    private var videoProcessMap: [String: Process] = [:]
     private var fetchProcess: Process?
     
     static func currentSupportDirectory() -> URL {
@@ -268,6 +272,7 @@ class YTDLPService {
             
             Task { @MainActor in
                 self.activeProcesses.append(process)
+                self.videoProcessMap[video.id] = process
             }
             
             let fileHandle = pipe.fileHandleForReading
@@ -298,6 +303,7 @@ class YTDLPService {
                 errHandle.readabilityHandler = nil
                 Task { @MainActor [weak self] in
                     self?.activeProcesses.removeAll { $0 == p }
+                    self?.videoProcessMap.removeValue(forKey: video.id)
                 }
                 
                 if p.terminationStatus == 0 {
@@ -318,6 +324,28 @@ class YTDLPService {
     }
     
     // 4. Cancel all running processes
+    func pauseDownload(videoId: String) {
+        if let process = videoProcessMap[videoId], process.isRunning {
+            process.suspend()
+        }
+    }
+    
+    func resumeDownload(videoId: String) {
+        if let process = videoProcessMap[videoId], process.isRunning {
+            process.resume()
+        }
+    }
+    
+    func cancelDownload(videoId: String) {
+        if let process = videoProcessMap[videoId] {
+            if process.isRunning {
+                process.terminate()
+            }
+            activeProcesses.removeAll { $0 == process }
+            videoProcessMap.removeValue(forKey: videoId)
+        }
+    }
+    
     func cancelAllDownloads() {
         for process in activeProcesses where process.isRunning {
             if process != fetchProcess {
@@ -325,6 +353,7 @@ class YTDLPService {
             }
         }
         activeProcesses.removeAll { $0 != fetchProcess }
+        videoProcessMap.removeAll()
     }
     
     func cancelFetch() {
@@ -442,10 +471,10 @@ class DownloaderViewModel: ObservableObject {
         let savedMax = UserDefaults.standard.integer(forKey: "maxConcurrentDownloads")
         let maxConcurrentDownloads = savedMax > 0 ? savedMax : 3
         
-        let indicesToDownload = videos.indices.filter { videos[$0].isSelected && videos[$0].status != .success }
+        let indicesToDownload = videos.indices.filter { videos[$0].isSelected && (videos[$0].status == .idle || videos[$0].status == .error || videos[$0].status == .cancelled) }
         
         for index in indicesToDownload {
-            videos[index].status = .downloading
+            videos[index].status = .pending
             videos[index].downloadProgress = 0.0
             videos[index].errorDescription = nil
         }
@@ -470,6 +499,12 @@ class DownloaderViewModel: ObservableObject {
                 activeTasks += 1
                 
                 group.addTask {
+                    await MainActor.run {
+                        if let currentIndex = self.videos.firstIndex(where: { $0.id == video.id }) {
+                            self.videos[currentIndex].status = .downloading
+                        }
+                    }
+                    
                     let stream = await service.downloadVideo(
                         video: video,
                         downloadType: type,
@@ -499,7 +534,12 @@ class DownloaderViewModel: ObservableObject {
                     
                     await MainActor.run {
                         if let currentIndex = self.videos.firstIndex(where: { $0.id == video.id }) {
-                            if let errorMsg = finalError {
+                            // Do not overwrite cancelled status
+                            if self.videos[currentIndex].status == .cancelled {
+                                return
+                            }
+                            
+                            if let errorMsg = finalError, !errorMsg.isEmpty {
                                 self.videos[currentIndex].status = .error
                                 self.videos[currentIndex].errorDescription = errorMsg
                             } else {
@@ -528,7 +568,30 @@ class DownloaderViewModel: ObservableObject {
         }
     }
     
-    // 6. Cancel Downloads
+    // 6. Pause, Resume, Cancel for individual video
+    func pauseVideo(_ id: String) {
+        if let index = videos.firstIndex(where: { $0.id == id }) {
+            videos[index].status = .paused
+            service.pauseDownload(videoId: id)
+        }
+    }
+    
+    func resumeVideo(_ id: String) {
+        if let index = videos.firstIndex(where: { $0.id == id }) {
+            videos[index].status = .downloading
+            service.resumeDownload(videoId: id)
+        }
+    }
+    
+    func cancelVideo(_ id: String) {
+        if let index = videos.firstIndex(where: { $0.id == id }) {
+            videos[index].status = .cancelled
+            videos[index].downloadProgress = 0.0
+            service.cancelDownload(videoId: id)
+        }
+    }
+    
+    // 7. Cancel all Downloads
     func cancelDownloads() {
         service.cancelAllDownloads()
         
@@ -1007,21 +1070,51 @@ struct VideoCellView: View {
                                 .padding(.leading, 4)
                         }
                         
-                        if video.status == .downloading {
-                            HStack(spacing: 12) {
-                                if !video.totalSize.isEmpty {
-                                    Text("Dung lượng: \\(video.totalSize)")
+                            if video.status == .downloading || video.status == .paused || video.status == .pending {
+                                HStack(spacing: 12) {
+                                    if video.status == .downloading {
+                                        Button {
+                                            viewModel.pauseVideo(video.id)
+                                        } label: {
+                                            Label("Tạm dừng", systemImage: "pause.fill")
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.orange)
+                                    } else if video.status == .paused {
+                                        Button {
+                                            viewModel.resumeVideo(video.id)
+                                        } label: {
+                                            Label("Tiếp tục", systemImage: "play.fill")
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.green)
+                                    }
+                                    
+                                    Button {
+                                        viewModel.cancelVideo(video.id)
+                                    } label: {
+                                        Label("Huỷ", systemImage: "stop.fill")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundColor(.red)
+                                    
+                                    if video.status == .downloading {
+                                        if !video.totalSize.isEmpty {
+                                            Text("• \\(video.totalSize)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if !video.downloadSpeed.isEmpty {
+                                            Text("• \\(video.downloadSpeed)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if !video.downloadEta.isEmpty {
+                                            Text("• ETA: \\(video.downloadEta)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
                                 }
-                                if !video.downloadSpeed.isEmpty {
-                                    Text("Tốc độ: \\(video.downloadSpeed)")
-                                }
-                                if !video.downloadEta.isEmpty {
-                                    Text("Còn lại: \\(video.downloadEta)")
-                                }
-                            }
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        } else if video.status == .success {
+                                .font(.caption2)
+                            } else if video.status == .success {
                             Button("Mở thư mục") {
                                 if let folder = viewModel.destinationFolder {
                                     NSWorkspace.shared.open(folder)
@@ -1046,6 +1139,15 @@ struct VideoCellView: View {
                                 .font(.caption2)
                                 .foregroundColor(.blue)
                             }
+                        } else if video.status == .cancelled {
+                            Button {
+                                viewModel.retryDownload(for: video.id)
+                            } label: {
+                                Label("Tải lại", systemImage: "arrow.clockwise")
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption2)
+                            .foregroundColor(.blue)
                         }
                     }
                     .padding(.top, 2)
@@ -1058,18 +1160,24 @@ struct VideoCellView: View {
     
     private var statusText: String {
         switch video.status {
+        case .pending: return "Chờ tải"
         case .downloading: return "Đang tải"
-        case .success: return "Hoàn tất"
+        case .paused: return "Tạm dừng"
+        case .success: return "Đã tải"
         case .error: return "Lỗi"
+        case .cancelled: return "Đã huỷ"
         default: return ""
         }
     }
     
     private var statusColor: Color {
         switch video.status {
+        case .pending: return .orange
         case .downloading: return .blue
+        case .paused: return .orange
         case .success: return .green
         case .error: return .red
+        case .cancelled: return .gray
         default: return .clear
         }
     }

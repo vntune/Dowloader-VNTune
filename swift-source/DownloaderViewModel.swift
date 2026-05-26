@@ -104,10 +104,10 @@ class DownloaderViewModel: ObservableObject {
         let savedMax = UserDefaults.standard.integer(forKey: "maxConcurrentDownloads")
         let maxConcurrentDownloads = savedMax > 0 ? savedMax : 3
         
-        let indicesToDownload = videos.indices.filter { videos[$0].isSelected && videos[$0].status != .success }
+        let indicesToDownload = videos.indices.filter { videos[$0].isSelected && (videos[$0].status == .idle || videos[$0].status == .error || videos[$0].status == .cancelled) }
         
         for index in indicesToDownload {
-            videos[index].status = .downloading
+            videos[index].status = .pending
             videos[index].downloadProgress = 0.0
             videos[index].errorDescription = nil
         }
@@ -132,6 +132,12 @@ class DownloaderViewModel: ObservableObject {
                 activeTasks += 1
                 
                 group.addTask {
+                    await MainActor.run {
+                        if let currentIndex = self.videos.firstIndex(where: { $0.id == video.id }) {
+                            self.videos[currentIndex].status = .downloading
+                        }
+                    }
+                    
                     let stream = await service.downloadVideo(
                         video: video,
                         downloadType: type,
@@ -161,7 +167,12 @@ class DownloaderViewModel: ObservableObject {
                     
                     await MainActor.run {
                         if let currentIndex = self.videos.firstIndex(where: { $0.id == video.id }) {
-                            if let errorMsg = finalError {
+                            // Do not overwrite cancelled status
+                            if self.videos[currentIndex].status == .cancelled {
+                                return
+                            }
+                            
+                            if let errorMsg = finalError, !errorMsg.isEmpty {
                                 self.videos[currentIndex].status = .error
                                 self.videos[currentIndex].errorDescription = errorMsg
                             } else {
@@ -190,7 +201,30 @@ class DownloaderViewModel: ObservableObject {
         }
     }
     
-    // 6. Cancel Downloads
+    // 6. Pause, Resume, Cancel for individual video
+    func pauseVideo(_ id: String) {
+        if let index = videos.firstIndex(where: { $0.id == id }) {
+            videos[index].status = .paused
+            service.pauseDownload(videoId: id)
+        }
+    }
+    
+    func resumeVideo(_ id: String) {
+        if let index = videos.firstIndex(where: { $0.id == id }) {
+            videos[index].status = .downloading
+            service.resumeDownload(videoId: id)
+        }
+    }
+    
+    func cancelVideo(_ id: String) {
+        if let index = videos.firstIndex(where: { $0.id == id }) {
+            videos[index].status = .cancelled
+            videos[index].downloadProgress = 0.0
+            service.cancelDownload(videoId: id)
+        }
+    }
+    
+    // 7. Cancel all Downloads
     func cancelDownloads() {
         service.cancelAllDownloads()
         

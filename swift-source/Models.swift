@@ -3,10 +3,13 @@ import Foundation
 // 1. Data Models
 enum VideoStatus: String, Codable, Equatable {
     case idle
+    case pending       // queued
     case fetching
     case downloading
+    case paused
     case success
     case error
+    case cancelled
 }
 
 struct DownloadProgressData: Equatable {
