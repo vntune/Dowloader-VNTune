@@ -49,66 +49,103 @@ class YTDLPService {
         
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = [
+        
+        var args = [
             "--ffmpeg-location", ffmpegPath,
             "--dump-json",
             "--playlist-start", "\(startIndex)",
             "--playlist-end", "\(endIndex)",
-            url
         ]
         
+        if UserDefaults.standard.bool(forKey: "useCookies") {
+            let browser = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "safari"
+            args.append(contentsOf: ["--cookies-from-browser", browser])
+        }
+        
+        args.append(url)
+        process.arguments = args
+        
         let pipe = Pipe()
+        let errorPipe = Pipe()
         process.standardOutput = pipe
+        process.standardError = errorPipe
         
         activeProcesses.append(process)
         self.fetchProcess = process
         
+        defer {
+            activeProcesses.removeAll { $0 == process }
+            if self.fetchProcess == process { self.fetchProcess = nil }
+        }
+        
         // Đẩy tác vụ chạy lệnh và phân tích JSON nặng sang Background để tránh Đơ UI
-        let items: [VideoItem]? = try? await Task.detached(priority: .userInitiated) {
-            try process.run()
-            
-            guard let data = try? pipe.fileHandleForReading.readToEnd() else {
-                process.terminate()
-                return [VideoItem]()
-            }
-            
-            process.waitUntilExit()
-            
-            let outputString = String(decoding: data, as: UTF8.self)
-            var parsedItems: [VideoItem] = []
-            let decoder = JSONDecoder()
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyyMMdd" // yt-dlp upload_date format
-            
-            // Parse JSON Lines
-            let lines = outputString.components(separatedBy: .newlines).filter { !$0.isEmpty }
-            for line in lines {
-                if let lineData = line.data(using: .utf8),
-                   let rawVideo = try? decoder.decode(YTDLPVideoResponse.self, from: lineData) {
+        return try await Task.detached(priority: .userInitiated) {
+            return try await withThrowingTaskGroup(of: [VideoItem].self) { group in
+                group.addTask {
+                    try process.run()
+                    process.waitUntilExit()
                     
-                    let uploadDate = dateFormatter.date(from: rawVideo.upload_date ?? "") ?? Date()
+                    if process.terminationStatus != 0 {
+                        let errorData = try? errorPipe.fileHandleForReading.readToEnd()
+                        let errorString = String(decoding: errorData ?? Data(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        var userFriendlyError = "Lỗi yt-dlp (\(process.terminationStatus))"
+                        if errorString.contains("Sign in to confirm you’re not a bot") || errorString.contains("needs to login") || errorString.contains("Login required") {
+                            userFriendlyError = "Nền tảng yêu cầu đăng nhập. Vui lòng bật 'Sử dụng Cookies từ trình duyệt' trong Cài đặt."
+                        } else if !errorString.isEmpty {
+                            userFriendlyError = errorString
+                        }
+                        
+                        throw NSError(domain: "YTDLPError", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: userFriendlyError])
+                    }
                     
-                    let item = VideoItem(
-                        id: rawVideo.id,
-                        url: rawVideo.webpage_url ?? "",
-                        title: rawVideo.title ?? "Unknown Title",
-                        thumbnailURL: rawVideo.thumbnail,
-                        duration: rawVideo.duration ?? 0,
-                        views: rawVideo.view_count ?? 0,
-                        likes: rawVideo.like_count ?? 0,
-                        uploadDate: uploadDate,
-                        status: .idle
-                    )
-                    parsedItems.append(item)
+                    guard let data = try? pipe.fileHandleForReading.readToEnd() else {
+                        return [VideoItem]()
+                    }
+                    
+                    let outputString = String(decoding: data, as: UTF8.self)
+                    var parsedItems: [VideoItem] = []
+                    let decoder = JSONDecoder()
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "yyyyMMdd" // yt-dlp upload_date format
+                    
+                    // Parse JSON Lines
+                    let lines = outputString.components(separatedBy: .newlines).filter { !$0.isEmpty }
+                    for line in lines {
+                        if let lineData = line.data(using: .utf8),
+                           let rawVideo = try? decoder.decode(YTDLPVideoResponse.self, from: lineData) {
+                            
+                            let uploadDate = dateFormatter.date(from: rawVideo.upload_date ?? "") ?? Date()
+                            
+                            let item = VideoItem(
+                                id: rawVideo.id,
+                                url: rawVideo.webpage_url ?? "",
+                                title: rawVideo.title ?? "Unknown Title",
+                                thumbnailURL: rawVideo.thumbnail,
+                                duration: rawVideo.duration ?? 0,
+                                views: rawVideo.view_count ?? 0,
+                                likes: rawVideo.like_count ?? 0,
+                                uploadDate: uploadDate,
+                                status: .idle
+                            )
+                            parsedItems.append(item)
+                        }
+                    }
+                    return parsedItems
                 }
+                
+                group.addTask {
+                    // Timeout sau 60 giây
+                    try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                    process.terminate()
+                    throw NSError(domain: "TimeoutError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Hết thời gian chờ (60s). Có thể kết nối mạng yếu hoặc bị chặn, vui lòng thử bật Cookies trong Cài đặt."])
+                }
+                
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
             }
-            return parsedItems
         }.value
-        
-        activeProcesses.removeAll { $0 == process }
-        self.fetchProcess = nil
-        
-        return items ?? []
     }
     
     // 2 & 3. Download Video with AsyncStream yielding progress
@@ -139,6 +176,11 @@ class YTDLPService {
                     "-f", formatArg,
                     "--merge-output-format", videoFormat
                 ])
+            }
+            
+            if UserDefaults.standard.bool(forKey: "useCookies") {
+                let browser = UserDefaults.standard.string(forKey: "cookiesBrowser") ?? "safari"
+                args.append(contentsOf: ["--cookies-from-browser", browser])
             }
             
             args.append(contentsOf: [

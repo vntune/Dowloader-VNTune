@@ -70,6 +70,14 @@ struct MainView: View {
                     .help("Cài đặt hệ thống")
                 }
                 
+                if let error = viewModel.fetchErrorMessage {
+                    Text(error)
+                        .font(.callout)
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, -8)
+                }
+                
                 HStack {
                     Picker("", selection: $viewModel.downloadType) {
                         Text("Video").tag("video")
@@ -429,11 +437,15 @@ struct SettingsView: View {
     @AppStorage("fetchPageSize") var fetchPageSize: Int = 50
     @AppStorage("fileNameStrategy") var fileNameStrategy: Int = 1
     @AppStorage("maxFileNameLength") var maxFileNameLength: Int = 200
+    @AppStorage("useCookies") var useCookies: Bool = false
+    @AppStorage("cookiesBrowser") var cookiesBrowser: String = "safari"
     
     @State private var draftMaxConcurrentDownloads: Int = 3
     @State private var draftFetchPageSize: Int = 50
     @State private var draftFileNameStrategy: Int = 1
     @State private var draftMaxFileNameLength: Int = 200
+    @State private var draftUseCookies: Bool = false
+    @State private var draftCookiesBrowser: String = "safari"
     
     @Environment(\.dismiss) var dismiss
     
@@ -473,6 +485,23 @@ struct SettingsView: View {
                             .bold()
                     }
                 }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Sử dụng Cookies từ trình duyệt (để vượt qua Đăng nhập Facebook, v.v)", isOn: $draftUseCookies)
+                    
+                    if draftUseCookies {
+                        Picker("Trình duyệt:", selection: $draftCookiesBrowser) {
+                            Text("Safari").tag("safari")
+                            Text("Chrome").tag("chrome")
+                            Text("Firefox").tag("firefox")
+                            Text("Edge").tag("edge")
+                            Text("Brave").tag("brave")
+                            Text("Opera").tag("opera")
+                        }
+                        .padding(.leading, 20)
+                    }
+                }
+                .padding(.top, 10)
                 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Môi trường thực thi")
@@ -577,6 +606,8 @@ struct SettingsView: View {
                     fetchPageSize = draftFetchPageSize
                     fileNameStrategy = draftFileNameStrategy
                     maxFileNameLength = draftMaxFileNameLength
+                    useCookies = draftUseCookies
+                    cookiesBrowser = draftCookiesBrowser
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -584,12 +615,14 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 520, height: 600)
+        .frame(width: 520, height: 650)
         .onAppear {
             draftMaxConcurrentDownloads = maxConcurrentDownloads
             draftFetchPageSize = fetchPageSize
             draftFileNameStrategy = fileNameStrategy
             draftMaxFileNameLength = maxFileNameLength
+            draftUseCookies = useCookies
+            draftCookiesBrowser = cookiesBrowser
             dependencyManager.showPaths()
         }
     }

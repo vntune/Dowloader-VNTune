@@ -18,6 +18,7 @@ class DownloaderViewModel: ObservableObject {
     @Published var videoFormat: String = "mp4"
     @Published var audioFormat: String = "mp3"
     @Published var destinationFolder: URL?
+    @Published var fetchErrorMessage: String? = nil
     
     // Filter and Sort states
     @Published var minViewsFilter: Int = 0
@@ -53,6 +54,7 @@ class DownloaderViewModel: ObservableObject {
         self.urlInput = url
         self.currentStartIndex = 1
         self.isLoading = true
+        self.fetchErrorMessage = nil
         self.videos.removeAll()
         
         do {
@@ -62,8 +64,12 @@ class DownloaderViewModel: ObservableObject {
                 endIndex: currentStartIndex + pageSize - 1
             )
             self.videos = fetched
+            if fetched.isEmpty {
+                self.fetchErrorMessage = "Không tìm thấy video nào. Nếu quét PlayList hoặc kênh, thử bật 'Sử dụng Cookies từ trình duyệt' trong Cài đặt."
+            }
         } catch {
             print("Fetch error: \(error)")
+            self.fetchErrorMessage = error.localizedDescription
         }
         
         self.isLoading = false
@@ -74,6 +80,7 @@ class DownloaderViewModel: ObservableObject {
         guard !urlInput.isEmpty, !isLoading else { return }
         
         isLoading = true
+        self.fetchErrorMessage = nil
         currentStartIndex += pageSize
         
         do {
@@ -85,6 +92,7 @@ class DownloaderViewModel: ObservableObject {
             self.videos.append(contentsOf: fetched)
         } catch {
             print("Load more error: \(error)")
+            self.fetchErrorMessage = error.localizedDescription
         }
         
         isLoading = false
