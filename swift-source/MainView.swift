@@ -33,7 +33,7 @@ struct MainView: View {
             
             if dependencyManager.statusMessage.contains("Lỗi") {
                 Button("Thử lại") {
-                    Task { await dependencyManager.setupDependencies() }
+                    Task { await dependencyManager.updateOrInstallDependencies() }
                 }
                 .buttonStyle(.borderedProminent)
             }
