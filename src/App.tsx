@@ -565,9 +565,10 @@ class DependencyManager: ObservableObject {
     @Published var ffmpegURL: URL
     
     init() {
-        supportDirectory = YTDLPService.currentSupportDirectory()
-        ytDlpURL = supportDirectory.appendingPathComponent("yt-dlp_macos")
-        ffmpegURL = supportDirectory.appendingPathComponent("ffmpeg")
+        let currentDir = YTDLPService.currentSupportDirectory()
+        supportDirectory = currentDir
+        ytDlpURL = currentDir.appendingPathComponent("yt-dlp_macos")
+        ffmpegURL = currentDir.appendingPathComponent("ffmpeg")
     }
     
     func updatePaths() {
