@@ -209,8 +209,10 @@ class YTDLPService {
                         var userFriendlyError = "Lỗi yt-dlp (\\(process.terminationStatus))"
                         if errorString.contains("Sign in to confirm you’re not a bot") || errorString.contains("needs to login") || errorString.contains("Login required") {
                             userFriendlyError = "Nền tảng yêu cầu đăng nhập. Vui lòng bật 'Sử dụng Cookies từ trình duyệt' trong Cài đặt."
+                        } else if errorString.contains("Errno 1") || errorString.contains("Operation not permitted") || errorString.contains("Errmo1") {
+                            userFriendlyError = "Lỗi cấp quyền (Errno 1): yt-dlp không có quyền đọc Cookies. Vui lòng cấp quyền 'Full Disk Access' (Trợ năng/Toàn bộ đĩa) cho Terminal hoặc Ứng dụng trong System Settings > Privacy & Security."
                         } else if !errorString.isEmpty {
-                            userFriendlyError = errorString
+                            userFriendlyError = String(errorString.prefix(200)) // Giới hạn độ dài lỗi
                         }
                         
                         throw NSError(domain: "YTDLPError", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: userFriendlyError])
@@ -351,7 +353,16 @@ class YTDLPService {
                 if p.terminationStatus == 0 {
                     continuation.yield(DownloadProgressData(progress: 1.0, speed: "", totalSize: "", eta: "", isFinished: true, error: nil))
                 } else {
-                    continuation.yield(DownloadProgressData(progress: 0.0, speed: "", totalSize: "", eta: "", isFinished: true, error: stderrString.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    let errorString = stderrString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    var userFriendlyError = "Lỗi yt-dlp (\\(p.terminationStatus))"
+                    if errorString.contains("Sign in to confirm you’re not a bot") || errorString.contains("needs to login") || errorString.contains("Login required") {
+                        userFriendlyError = "Nền tảng yêu cầu đăng nhập. Vui lòng bật 'Sử dụng Cookies từ trình duyệt' trong Cài đặt."
+                    } else if errorString.contains("Errno 1") || errorString.contains("Operation not permitted") || errorString.contains("Errmo1") {
+                        userFriendlyError = "Lỗi cấp quyền (Errno 1): Ứng dụng không có quyền đọc Cookies. Vui lòng cấp quyền 'Full Disk Access' (Trợ năng/Toàn bộ đĩa) trong System Settings > Privacy & Security."
+                    } else if !errorString.isEmpty {
+                        userFriendlyError = String(errorString.prefix(250)) // Giới hạn độ dài lỗi
+                    }
+                    continuation.yield(DownloadProgressData(progress: 0.0, speed: "", totalSize: "", eta: "", isFinished: true, error: userFriendlyError))
                 }
                 continuation.finish()
             }
