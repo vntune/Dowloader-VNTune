@@ -22,6 +22,7 @@ private struct YTDLPVideoResponse: Codable {
 @MainActor
 class YTDLPService {
     private var activeProcesses: [Process] = []
+    private var fetchProcess: Process?
     
     static func currentSupportDirectory() -> URL {
         if let customPath = UserDefaults.standard.string(forKey: "customInstallPath"), !customPath.isEmpty {
@@ -59,6 +60,7 @@ class YTDLPService {
         process.standardOutput = pipe
         
         activeProcesses.append(process)
+        self.fetchProcess = process
         
         // Đẩy tác vụ chạy lệnh và phân tích JSON nặng sang Background để tránh Đơ UI
         let items: [VideoItem]? = try? await Task.detached(priority: .userInitiated) {
@@ -103,6 +105,7 @@ class YTDLPService {
         }.value
         
         activeProcesses.removeAll { $0 == process }
+        self.fetchProcess = nil
         
         return items ?? []
     }
@@ -201,10 +204,19 @@ class YTDLPService {
     }
     
     // 4. Cancel all running processes
-    func cancelAllProcesses() {
+    func cancelAllDownloads() {
         for process in activeProcesses where process.isRunning {
+            if process != fetchProcess {
+                process.terminate()
+            }
+        }
+        activeProcesses.removeAll { $0 != fetchProcess }
+    }
+    
+    func cancelFetch() {
+        if let process = fetchProcess, process.isRunning {
             process.terminate()
         }
-        activeProcesses.removeAll()
+        fetchProcess = nil
     }
 }

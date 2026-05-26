@@ -46,15 +46,22 @@ struct MainView: View {
             // 1. Header / Input Section
             VStack(spacing: 16) {
                 HStack {
-                    TextField("Nhập link YouTube video hoặc playlist...", text: $viewModel.urlInput)
+                    TextField("Nhập link kênh, hoặc video...", text: $viewModel.urlInput)
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.large)
                     
-                    Button("Quét") {
-                        Task { await viewModel.fetchVideos(url: viewModel.urlInput) }
+                    if viewModel.isLoading {
+                        Button("Huỷ quét") {
+                            viewModel.cancelFetch()
+                        }
+                        .controlSize(.large)
+                    } else {
+                        Button("Quét") {
+                            Task { await viewModel.fetchVideos(url: viewModel.urlInput) }
+                        }
+                        .controlSize(.large)
+                        .disabled(viewModel.urlInput.isEmpty || !dependencyManager.isReady)
                     }
-                    .controlSize(.large)
-                    .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading || !dependencyManager.isReady)
                     
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape")
@@ -172,7 +179,12 @@ struct MainView: View {
             }
             .overlay {
                 if viewModel.isLoading && viewModel.videos.isEmpty {
-                    ProgressView("Đang quét dữ liệu...")
+                    VStack(spacing: 12) {
+                        ProgressView("Đang quét dữ liệu...")
+                        Button("Huỷ quét") {
+                            viewModel.cancelFetch()
+                        }
+                    }
                 }
             }
             
@@ -219,8 +231,12 @@ struct MainView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = "Chọn làm thư mục tải về"
         
-        if panel.runModal() == .OK {
-            viewModel.destinationFolder = panel.url
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                DispatchQueue.main.async {
+                    self.viewModel.destinationFolder = url
+                }
+            }
         }
     }
 }
@@ -437,9 +453,13 @@ struct SettingsView: View {
                                 panel.canChooseFiles = false
                                 panel.canChooseDirectories = true
                                 panel.allowsMultipleSelection = false
-                                if panel.runModal() == .OK, let url = panel.url {
-                                    UserDefaults.standard.set(url.path, forKey: "customInstallPath")
-                                    dependencyManager.updatePaths()
+                                panel.begin { response in
+                                    if response == .OK, let url = panel.url {
+                                        DispatchQueue.main.async {
+                                            UserDefaults.standard.set(url.path, forKey: "customInstallPath")
+                                            dependencyManager.updatePaths()
+                                        }
+                                    }
                                 }
                             }
                             

@@ -136,6 +136,7 @@ private struct YTDLPVideoResponse: Codable {
 @MainActor
 class YTDLPService {
     private var activeProcesses: [Process] = []
+    private var fetchProcess: Process?
     
     static func currentSupportDirectory() -> URL {
         if let customPath = UserDefaults.standard.string(forKey: "customInstallPath"), !customPath.isEmpty {
@@ -173,6 +174,8 @@ class YTDLPService {
         process.standardOutput = pipe
         
         activeProcesses.append(process)
+        self.fetchProcess = process
+        
         // Đẩy tác vụ chạy lệnh và phân tích JSON nặng sang Background để tránh Đơ UI
         let items: [VideoItem]? = try? await Task.detached(priority: .userInitiated) {
             try process.run()
@@ -216,6 +219,7 @@ class YTDLPService {
         }.value
         
         activeProcesses.removeAll { $0 == process }
+        self.fetchProcess = nil
         
         return items ?? []
     }
@@ -314,11 +318,20 @@ class YTDLPService {
     }
     
     // 4. Cancel all running processes
-    func cancelAllProcesses() {
+    func cancelAllDownloads() {
         for process in activeProcesses where process.isRunning {
+            if process != fetchProcess {
+                process.terminate()
+            }
+        }
+        activeProcesses.removeAll { $0 != fetchProcess }
+    }
+    
+    func cancelFetch() {
+        if let process = fetchProcess, process.isRunning {
             process.terminate()
         }
-        activeProcesses.removeAll()
+        fetchProcess = nil
     }
 }
 `;
@@ -517,13 +530,19 @@ class DownloaderViewModel: ObservableObject {
     
     // 6. Cancel Downloads
     func cancelDownloads() {
-        service.cancelAllProcesses()
+        service.cancelAllDownloads()
         
         // Reset state for currently downloading videos
         for index in videos.indices where videos[index].status == .downloading {
             videos[index].status = .idle
             videos[index].downloadProgress = 0.0
         }
+    }
+    
+    // 7. Cancel Fetch
+    func cancelFetch() {
+        service.cancelFetch()
+        isLoading = false
     }
 }
 `;
@@ -723,15 +742,22 @@ struct MainView: View {
             // 1. Header / Input Section
             VStack(spacing: 16) {
                 HStack {
-                    TextField("Nhập link YouTube video hoặc playlist...", text: $viewModel.urlInput)
+                    TextField("Nhập link kênh, hoặc video...", text: $viewModel.urlInput)
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.large)
                     
-                    Button("Quét") {
-                        Task { await viewModel.fetchVideos(url: viewModel.urlInput) }
+                    if viewModel.isLoading {
+                        Button("Huỷ quét") {
+                            viewModel.cancelFetch()
+                        }
+                        .controlSize(.large)
+                    } else {
+                        Button("Quét") {
+                            Task { await viewModel.fetchVideos(url: viewModel.urlInput) }
+                        }
+                        .controlSize(.large)
+                        .disabled(viewModel.urlInput.isEmpty || !dependencyManager.isReady)
                     }
-                    .controlSize(.large)
-                    .disabled(viewModel.urlInput.isEmpty || viewModel.isLoading || !dependencyManager.isReady)
                     
                     Button(action: { showingSettings = true }) {
                         Image(systemName: "gearshape")
@@ -849,7 +875,12 @@ struct MainView: View {
             }
             .overlay {
                 if viewModel.isLoading && viewModel.videos.isEmpty {
-                    ProgressView("Đang quét dữ liệu...")
+                    VStack(spacing: 12) {
+                        ProgressView("Đang quét dữ liệu...")
+                        Button("Huỷ quét") {
+                            viewModel.cancelFetch()
+                        }
+                    }
                 }
             }
             
@@ -896,8 +927,12 @@ struct MainView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = "Chọn làm thư mục tải về"
         
-        if panel.runModal() == .OK {
-            viewModel.destinationFolder = panel.url
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                DispatchQueue.main.async {
+                    self.viewModel.destinationFolder = url
+                }
+            }
         }
     }
 }
@@ -1114,9 +1149,13 @@ struct SettingsView: View {
                                 panel.canChooseFiles = false
                                 panel.canChooseDirectories = true
                                 panel.allowsMultipleSelection = false
-                                if panel.runModal() == .OK, let url = panel.url {
-                                    UserDefaults.standard.set(url.path, forKey: "customInstallPath")
-                                    dependencyManager.updatePaths()
+                                panel.begin { response in
+                                    if response == .OK, let url = panel.url {
+                                        DispatchQueue.main.async {
+                                            UserDefaults.standard.set(url.path, forKey: "customInstallPath")
+                                            dependencyManager.updatePaths()
+                                        }
+                                    }
                                 }
                             }
                             

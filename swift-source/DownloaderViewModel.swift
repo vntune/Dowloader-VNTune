@@ -192,12 +192,18 @@ class DownloaderViewModel: ObservableObject {
     
     // 6. Cancel Downloads
     func cancelDownloads() {
-        service.cancelAllProcesses()
+        service.cancelAllDownloads()
         
         // Reset state for currently downloading videos
         for index in videos.indices where videos[index].status == .downloading {
             videos[index].status = .idle
             videos[index].downloadProgress = 0.0
         }
+    }
+    
+    // 7. Cancel Fetch
+    func cancelFetch() {
+        service.cancelFetch()
+        isLoading = false
     }
 }
